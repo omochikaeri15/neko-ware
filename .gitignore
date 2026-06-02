@@ -1,0 +1,24 @@
+# Rust Build Artifacts
+/target/
+**/*.rs.bk
+
+# Quality of Life
+.cargo/
+
+# Extracted Game Data
+keys
+keys.json
+*.pack
+*.list
+
+# Update Leftovers
+CHANGELOG.md
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+
+# OS Junk
+.DS_Store
+Thumbs.db
