@@ -59,7 +59,7 @@ enum Commands {
 enum KeysAction {
     #[command(about = "Print current keys and validate them")]
     Print,
-    #[command(about = "Initialize the [36mkeys.json[0m creation wizard")]
+    #[command(about = "Initialize the \x1b[36mkeys.json\x1b[0m creation wizard")]
     Load,
 }
 

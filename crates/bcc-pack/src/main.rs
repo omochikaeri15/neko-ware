@@ -9,7 +9,7 @@ use keys::UserKeys;
 use std::process::Command as ProcessCommand;
 
 #[derive(Parser)]
-#[command(name = "bcc-apk", version, about = "BCC Standalone Pack Utility", long_about = None)]
+#[command(name = "bcc-pack", version, about = "BCC Standalone Pack Utility", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -35,7 +35,7 @@ enum Commands {
 enum KeysAction {
     #[command(about = "Print current keys and validate them")]
     Print,
-    #[command(about = "Initialize the [36mkeys.json[0m creation wizard")]
+    #[command(about = "Initialize the \x1b[36mkeys.json\x1b[0m creation wizard")]
     Load,
 }
 
