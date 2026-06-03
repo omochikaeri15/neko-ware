@@ -12,6 +12,7 @@ pub struct PackPair {
 }
 
 pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
+    println!();
     let mut raw_packs = Vec::new();
     let mut raw_lists = Vec::new();
 
