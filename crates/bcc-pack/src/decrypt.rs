@@ -13,7 +13,7 @@ pub fn execute(input_target: &str) {
     let all_valid = validations.iter().all(|&(key, iv)| key && iv);
 
     if !all_valid {
-        print!("\n\x1b[33mWARNING: Invalid or missing keys detected in 'keys' file, continue anyways? [Y/n]: \x1b[0m");
+        print!("\n\x1b[33mWARNING\x1b[0m: Invalid or missing keys detected in 'keys' file, continue anyways? [Y/n]: ");
         let _ = std::io::stdout().flush();
         let mut choice = String::new();
         let _ = std::io::stdin().read_line(&mut choice);
@@ -22,13 +22,13 @@ pub fn execute(input_target: &str) {
             println!("\nFAILURE: Session aborted!\n");
             return;
         }
-        println!("\x1b[33mNOTE: You can create a 'keys.json' file by running the 'bcc-pack keys load' command.\x1b[0m");
+        println!("\x1b[33mNOTE\x1b[0m: You can create a 'keys.json' file by running the 'bcc-pack keys load' command.");
     }
 
     let nyanko_keys = match keys.to_nyanko_keys() {
         Ok(valid_keys) => valid_keys,
         Err(error) => {
-            println!("\x1b[31mERROR: Failed to parse keys for decryption: {}\x1b[0m", error);
+            println!("\x1b[31m  ✗ ERROR: Failed to parse keys for decryption: {}\x1b[0m", error);
             return;
         }
     };
@@ -47,27 +47,27 @@ pub fn execute(input_target: &str) {
 
     for pair in pairs {
         let Ok(list_data) = fs::read(&pair.list_path) else {
-            println!("\x1b[31m  ✗ Failed to extract files from {} (Could not read .list file)\x1b[0m", pair.name);
+            println!("  \x1b[31m✗\x1b[0m Failed to extract files from \x1b[36m{}\x1b[0m (Could not read .list file)", pair.name);
             continue;
         };
 
         let decoded_list_content = match cryptology::decrypt_list(&list_data) {
             Ok(content) => content,
             Err(_) => {
-                println!("\x1b[31m  ✗ Failed to extract files from {} (List decryption failed)\x1b[0m", pair.name);
+                println!("  \x1b[31m✗\x1b[0m Failed to extract files from \x1b[36m{}\x1b[0m (List decryption failed)", pair.name);
                 continue;
             }
         };
 
         if decoded_list_content.trim().is_empty() {
-            println!("\x1b[33m  ✗ No files found in {}\x1b[0m", pair.name);
+            println!("  \x1b[33m!\x1b[0m No files found in \x1b[36m{}\x1b[0m", pair.name);
             continue;
         }
 
         let mut pack_file = match fs::File::open(&pair.pack_path) {
             Ok(file) => file,
             Err(_) => {
-                println!("\x1b[31m  ✗ Failed to extract files from {} (Could not open .pack file)\x1b[0m", pair.name);
+                println!("  \x1b[31m✗\x1b[0m Failed to extract files from \x1b[36m{}\x1b[0m (Could not open .pack file)", pair.name);
                 continue;
             }
         };
@@ -122,13 +122,13 @@ pub fn execute(input_target: &str) {
 
         if extracted_count > 0 {
             if corrupted_count > 0 {
-                println!("\x1b[31m  ✗ Skipped {} corrupted files in {}\x1b[0m", corrupted_count, pair.name);
+                println!("  \x1b[31m✗\x1b[0m Skipped \x1b[36m{}\x1b[0m corrupted files in \x1b[36m{}\x1b[0m", corrupted_count, pair.name);
             }
-            println!("\x1b[32m  ✓ Extracted {} files to decrypted/{}/\x1b[0m", extracted_count, pair.name);
+            println!("  \x1b[32m✓\x1b[0m Extracted \x1b[36m{}\x1b[0m files to decrypted/\x1b[36m{}\x1b[0m/", extracted_count, pair.name);
         } else if corrupted_count > 0 {
-            println!("\x1b[31m  ✗ Skipped corrupted extraction of {}\x1b[0m", pair.name);
+            println!("  \x1b[31m✗\x1b[0m Skipped corrupted extraction of \x1b[36m{}\x1b[0m", pair.name);
         } else {
-            println!("\x1b[33m  ✗ No files found in {}\x1b[0m", pair.name);
+            println!("  \x1b[33m!\x1b[0m No files found in \x1b[36m{}\x1b[0m", pair.name);
         }
     }
 
@@ -137,14 +137,14 @@ pub fn execute(input_target: &str) {
 
     if temp_apk_dir.exists() {
         if let Err(error) = fs::remove_dir_all(&temp_apk_dir) {
-            println!("\n\x1b[33m  ⚠ ERROR: Could not delete temporary 'apk' directory: {}\x1b[0m", error);
+            println!("\n  \x1b[33m! ERROR\x1b[0m: Could not delete temporary 'apk' directory: {}", error);
         } else {
-            println!("\x1b[32m  ✓ Cleaned up temporary APK files\x1b[0m");
+            println!("  \x1b[32m✓\x1b[0m Cleaned up temporary APK files");
         }
     }
 
     if total_extracted_count > 0 {
-        println!("\nSUCCESS: Decrypted {} files!\n", total_extracted_count);
+        println!("\nSUCCESS: Decrypted \x1b[36m{}\x1b[0m files!\n", total_extracted_count);
     } else {
         println!("\nFAILURE: Decrypted no files!\n");
     }

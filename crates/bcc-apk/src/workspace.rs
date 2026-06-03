@@ -1,0 +1,39 @@
+use std::fs;
+use crate::io::get_local_dir;
+use crate::keys::UserKeys;
+use crate::config::AppConfig;
+use crate::readme;
+
+pub fn init() -> std::io::Result<()> {
+    let default_keys = UserKeys::default();
+    default_keys.save();
+
+    let active_config = AppConfig::default();
+    active_config.save();
+
+    readme::generate()?;
+
+    let base_directory = get_local_dir();
+
+    let mut mod_directory = base_directory.clone();
+    mod_directory.push("mod");
+
+    if mod_directory.exists() {
+        let _removal_result = fs::remove_dir_all(&mod_directory);
+    }
+
+    let required_folder_names = vec![
+        "mod/loose",
+        "mod/patch",
+        "mod/icons",
+        "apk",
+    ];
+
+    for target_folder in required_folder_names {
+        let mut directory_path = base_directory.clone();
+        directory_path.push(target_folder);
+        fs::create_dir_all(&directory_path)?;
+    }
+
+    Ok(())
+}

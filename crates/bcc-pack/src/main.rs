@@ -9,7 +9,7 @@ use keys::UserKeys;
 use std::process::Command as ProcessCommand;
 
 #[derive(Parser)]
-#[command(name = "bcc-pack", version, about = "BCC Standalone Pack Utility", long_about = None)]
+#[command(name = "bcc-apk", version, about = "BCC Standalone Pack Utility", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -22,7 +22,7 @@ enum Commands {
         #[command(subcommand)]
         action: KeysAction,
     },
-    #[command(about = "Initialize workspace with empty keys and folders")]
+    #[command(about = "Initialize workspace or set everything to default")]
     Init,
     #[command(about = "Decrypt game files from various formats")]
     Decrypt {
@@ -35,7 +35,7 @@ enum Commands {
 enum KeysAction {
     #[command(about = "Print current keys and validate them")]
     Print,
-    #[command(about = "Initialize the 'keys.json' creation wizard")]
+    #[command(about = "Initialize the [36mkeys.json[0m creation wizard")]
     Load,
 }
 
@@ -65,9 +65,6 @@ fn main() {
         None => {
             let mut cmd = Cli::command();
             let _ = cmd.print_help();
-
-            println!("\n--- Interactive Terminal Session Started ---");
-            println!("Hint: Run the tool using ./bcc-pack <command>\n");
 
             if cfg!(target_os = "windows") {
                 let _ = ProcessCommand::new("cmd.exe").status();

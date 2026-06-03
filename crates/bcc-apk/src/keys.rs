@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use nyanko::pack::cryptology::Region;
 use crate::io::{load_local, save_local};
 use std::io::{stdin, stdout, Write};
 
@@ -99,22 +98,23 @@ impl UserKeys {
         ]
     }
 
-    pub fn to_nyanko_keys(&self) -> Result<nyanko::pack::cryptology::Keys, String> {
-        let mut collection_tuples = Vec::new();
+    pub fn get_validated_region_key(&self, target_region: &str) -> Result<&RegionKey, String> {
+        let (region_key, expected_hash) = match target_region {
+            "JP" => (&self.ja, EXPECTED_HASHES[0]),
+            "EN" => (&self.en, EXPECTED_HASHES[1]),
+            "TW" => (&self.tw, EXPECTED_HASHES[2]),
+            "KR" => (&self.ko, EXPECTED_HASHES[3]),
+            _ => return Err(format!("Unknown region identifier: {}", target_region)),
+        };
 
-        push_valid_key(&mut collection_tuples, Region::Jp, &self.ja.key, &self.ja.iv);
-        push_valid_key(&mut collection_tuples, Region::En, &self.en.key, &self.en.iv);
-        push_valid_key(&mut collection_tuples, Region::Tw, &self.tw.key, &self.tw.iv);
-        push_valid_key(&mut collection_tuples, Region::Kr, &self.ko.key, &self.ko.iv);
-
-        let reference_tuples: Vec<(Region, &str, &str)> = collection_tuples.iter()
-            .map(|(region_enum, key_string, iv_string)| (*region_enum, key_string.as_str(), iv_string.as_str()))
-            .collect();
-
-        match nyanko::pack::cryptology::Keys::parse(&reference_tuples) {
-            Ok(parsed_keys) => Ok(parsed_keys),
-            Err(parsing_error) => Err(parsing_error.to_string()),
+        if !validate_hash(&region_key.key, expected_hash.0) {
+            return Err(format!("{} Region Key is invalid or missing.", target_region));
         }
+        if !validate_hash(&region_key.iv, expected_hash.1) {
+            return Err(format!("{} Region IV is invalid or missing.", target_region));
+        }
+
+        Ok(region_key)
     }
 }
 
@@ -157,14 +157,4 @@ fn validate_hash(input_value: &str, expected_hash: &str) -> bool {
 
     let computed_hash = format!("{:x}", md5::compute(cleaned_value.as_bytes()));
     computed_hash == expected_hash
-}
-
-fn push_valid_key(tuple_vector: &mut Vec<(Region, String, String)>, target_region: Region, key_value: &str, iv_value: &str) {
-    let cleaned_key = key_value.trim();
-    let cleaned_iv = iv_value.trim();
-
-    if cleaned_key.len() != 32 { return; }
-    if cleaned_iv.len() != 32 { return; }
-
-    tuple_vector.push((target_region, cleaned_key.to_string(), cleaned_iv.to_string()));
 }
