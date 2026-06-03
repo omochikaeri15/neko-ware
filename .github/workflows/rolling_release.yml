@@ -1,0 +1,139 @@
+name: Build & Rolling Release
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+  workflow_dispatch:
+
+jobs:
+
+  prepare:
+    name: Get Version
+    runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Parse Workspace Version
+        id: get_version
+        run: |
+          VERSION=$(grep -m 1 "^version" Cargo.toml | awk -F '"' '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Found workspace version: $VERSION"
+
+
+  build-windows:
+    name: Build Windows
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build All Crates
+        run: cargo build --release
+
+      - name: Gather and Zip Binaries
+        shell: bash
+        run: |
+          mkdir -p staging
+          for toml in crates/*/Cargo.toml; do
+            BIN_NAME=$(grep -m 1 "^name" "$toml" | awk -F '"' '{print $2}' | tr -d ' ')
+            cp "target/release/${BIN_NAME}.exe" staging/
+          done
+          cd staging
+          7z a "../bcc-scripts-win-v${{ needs.prepare.outputs.app_version }}.zip" *
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: bcc-scripts-win-v${{ needs.prepare.outputs.app_version }}.zip
+          retention-days: 1
+
+
+  build-linux:
+    name: Build Linux
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build All Crates
+        run: cargo build --release
+
+      - name: Gather, Executable, and Zip Binaries
+        run: |
+          mkdir -p staging
+          for toml in crates/*/Cargo.toml; do
+            BIN_NAME=$(grep -m 1 "^name" "$toml" | awk -F '"' '{print $2}' | tr -d ' ')
+            cp "target/release/${BIN_NAME}" staging/
+            chmod +x "staging/${BIN_NAME}"
+          done
+          cd staging
+          zip -r "../bcc-scripts-linux-v${{ needs.prepare.outputs.app_version }}.zip" ./*
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-zip
+          path: bcc-scripts-linux-v${{ needs.prepare.outputs.app_version }}.zip
+          retention-days: 1
+
+
+  build-macos:
+    name: Build MacOS
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build All Crates
+        run: cargo build --release
+
+      - name: Gather, Executable, and Zip Binaries
+        run: |
+          mkdir -p staging
+          for toml in crates/*/Cargo.toml; do
+            BIN_NAME=$(grep -m 1 "^name" "$toml" | awk -F '"' '{print $2}' | tr -d ' ')
+            cp "target/release/${BIN_NAME}" staging/
+            chmod +x "staging/${BIN_NAME}"
+          done
+          cd staging
+          zip -r "../bcc-scripts-mac-v${{ needs.prepare.outputs.app_version }}.zip" ./*
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: bcc-scripts-mac-v${{ needs.prepare.outputs.app_version }}.zip
+          retention-days: 1
+
+
+  publish-rolling:
+    name: Publish Rolling Release
+    needs: [prepare, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-zip'
+          merge-multiple: true
+          path: final_assets
+
+      - name: Update Rolling Release Page
+        env:
+          GH_TOKEN: ${{ secrets.MY_RELEASE_TOKEN }}
+        run: |
+          if ! gh release view rolling > /dev/null 2>&1; then
+            gh release create rolling \
+              --title "BCC-Scripts" \
+              --notes "Pre-built and packaged \`BCC-Scripts\` binaries by operating system"
+          fi
+
+          gh release upload rolling final_assets/*.zip --clobber
