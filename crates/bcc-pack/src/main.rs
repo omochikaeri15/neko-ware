@@ -7,10 +7,19 @@ pub mod workspace;
 use clap::{CommandFactory, Parser, Subcommand};
 use keys::UserKeys;
 use std::process::Command as ProcessCommand;
+use colored::Colorize;
+use tracing::{error, Level};
+use tracing_subscriber::fmt;
 
 #[derive(Parser)]
 #[command(name = "bcc-pack", version, about = "BCC Standalone Pack Utility", long_about = None)]
 struct Cli {
+    #[arg(short, long, global = true, help = "Enable verbose debug logging")]
+    verbose: bool,
+    #[arg(short = 't', long, global = true, help = "Enable maximum trace-level logging")]
+    trace: bool,
+    #[arg(short, long, global = true, help = "Output logs in structured JSON format")]
+    json: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -28,6 +37,8 @@ enum Commands {
     Decrypt {
         #[arg(value_name = "PACK | LIST | APK | DIR")]
         input: String,
+        #[arg(short, long, help = "Force decryption and skip key validation prompts")]
+        force: bool,
     },
 }
 
@@ -35,32 +46,63 @@ enum Commands {
 enum KeysAction {
     #[command(about = "Print current keys and validate them")]
     Print,
-    #[command(about = "Initialize the \x1b[36mkeys.json\x1b[0m creation wizard")]
+    #[command(about = "Initialize the keys.json creation wizard")]
     Load,
+    #[command(about = "Show required environment variables for headless configuration")]
+    Env,
 }
 
 fn main() {
+    #[cfg(windows)]
+    let _ = colored::control::set_virtual_terminal(true);
+
     let cli = Cli::parse();
+
+    let show_ui = !cli.json && !cli.verbose && !cli.trace;
+
+    if cli.json {
+        colored::control::set_override(false);
+        let max_level = if cli.trace {
+            Level::TRACE
+        } else if cli.verbose {
+            Level::DEBUG
+        } else {
+            Level::INFO
+        };
+        fmt().json().with_max_level(max_level).init();
+    } else if cli.trace {
+        fmt().with_max_level(Level::TRACE).init();
+    } else if cli.verbose {
+        fmt().with_max_level(Level::DEBUG).init();
+    }
 
     match cli.command {
         Some(Commands::Init) => {
-            if let Err(error) = workspace::init() {
-                println!("\n\x1b[31m  ✗ Failed to initialize workspace: {}\x1b[0m\n", error);
+            if let Err(err) = workspace::init() {
+                if show_ui {
+                    println!("\n  {} Failed to initialize workspace: {}\n", "✗".red(), err);
+                }
+                error!("Failed to initialize workspace: {}", err);
             } else {
-                println!("\n\x1b[32m  ✓ Workspace initialized! Created empty keys.json and decrypted directory\x1b[0m\n");
+                if show_ui {
+                    println!("\n  {} Workspace initialized! Created empty keys.json and decrypted directory\n", "✓".green());
+                }
             }
         }
         Some(Commands::Keys { action }) => match action {
             KeysAction::Print => {
                 let keys = UserKeys::load();
-                keys.print_status();
+                keys.print_status(show_ui);
             }
             KeysAction::Load => {
-                UserKeys::prompt_interactive_load();
+                UserKeys::prompt_interactive_load(show_ui);
+            }
+            KeysAction::Env => {
+                UserKeys::print_env_template(show_ui);
             }
         },
-        Some(Commands::Decrypt { input }) => {
-            decrypt::execute(&input);
+        Some(Commands::Decrypt { input, force }) => {
+            decrypt::execute(&input, show_ui, force);
         }
         None => {
             let mut cmd = Cli::command();

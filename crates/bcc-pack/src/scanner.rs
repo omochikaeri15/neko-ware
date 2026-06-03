@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
+use colored::Colorize;
+use tracing::{error, debug, trace};
+
 use crate::io::get_local_dir;
 
 #[derive(Debug)]
@@ -11,8 +14,10 @@ pub struct PackPair {
     pub list_path: PathBuf,
 }
 
-pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
-    println!();
+pub fn scan_and_resolve(input_path: &Path, show_ui: bool) -> Result<Vec<PackPair>, String> {
+    if show_ui { println!(); }
+    debug!("Commencing path scan at: {}", input_path.display());
+
     let mut raw_packs = Vec::new();
     let mut raw_lists = Vec::new();
 
@@ -20,6 +25,7 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
         let ext = input_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
         match ext.as_str() {
             "apk" | "xapk" | "apkm" | "apks" | "zip" => {
+                debug!("Detected archive input type. Attempting extraction...");
                 let archive_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
                 let mut target_dir = get_local_dir();
                 target_dir.push("apk");
@@ -43,6 +49,7 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
             _ => return Err("Unsupported file type provided as input.".to_string()),
         }
     } else if input_path.is_dir() {
+        debug!("Detected directory input type. Walking hierarchy...");
         traverse_directory(input_path, &mut raw_packs, &mut raw_lists);
     } else {
         return Err("Input path does not exist.".to_string());
@@ -68,10 +75,13 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
     for (stem, (packs, lists)) in grouped_files {
         if packs.len() > 1 || lists.len() > 1 {
             has_skipped_items = true;
-            eprintln!("  \x1b[33m! ERROR\x1b[0m: Conflict for \x1b[36m{}\x1b[0m found:", stem);
-            for pack_path in &packs { eprintln!("    - {}", pack_path.display()); }
-            for list_path in &lists { eprintln!("    - {}", list_path.display()); }
-            eprintln!();
+            if show_ui {
+                println!("  {} ERROR: Conflict for {} found:", "!".yellow(), stem.cyan());
+                for pack_path in &packs { println!("    - {}", pack_path.display()); }
+                for list_path in &lists { println!("    - {}", list_path.display()); }
+                println!();
+            }
+            error!(pack = %stem, "Conflict found during pair resolution");
             continue;
         }
 
@@ -92,28 +102,36 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
 
         if pack_path.parent() != list_path.parent() {
             has_skipped_items = true;
-            eprintln!("  \x1b[33m! ERROR\x1b[0m: \x1b[36m{}\x1b[0m pack and list are in different directories:", stem);
-            eprintln!("    - Pack: {}", pack_path.display());
-            eprintln!("    - List: {}", list_path.display());
-            eprintln!();
+            if show_ui {
+                println!("  {} ERROR: {} pack and list are in different directories:", "!".yellow(), stem.cyan());
+                println!("    - Pack: {}", pack_path.display());
+                println!("    - List: {}", list_path.display());
+                println!();
+            }
+            error!(pack = %stem, "Pack and list mismatch detected");
             continue;
         }
 
+        debug!("Resolved valid pair for {}", stem);
         valid_pairs.push(PackPair { name: stem, pack_path, list_path });
     }
 
     if !missing_pack_stems.is_empty() || !missing_list_stems.is_empty() {
-        eprintln!("  \x1b[33m! ERROR\x1b[0m: The following .list files have no matching .pack file:");
-        for stem in &missing_pack_stems { eprintln!("    - \x1b[36m{}\x1b[0m.list", stem); }
-        eprintln!();
+        if show_ui {
+            println!("  {} ERROR: The following .list files have no matching .pack file:", "!".yellow());
+            for stem in &missing_pack_stems { println!("    - {}.list", stem.cyan()); }
+            println!();
 
-        eprintln!("  \x1b[33m! ERROR\x1b[0m: The following .pack files have no matching .list file:");
-        for stem in &missing_list_stems { eprintln!("    - \x1b[36m{}\x1b[0m.pack", stem); }
-        eprintln!();
+            println!("  {} ERROR: The following .pack files have no matching .list file:", "!".yellow());
+            for stem in &missing_list_stems { println!("    - {}.pack", stem.cyan()); }
+            println!();
+        }
+        error!("Orphaned lists or packs detected during scan");
     }
 
     if has_skipped_items {
-        eprintln!("  \x1b[31m✗\x1b[0m Skipping conflicting and fragmented packs\n");
+        if show_ui { println!("  {} Skipping conflicting and fragmented packs\n", "✗".red()); }
+        error!("Skipping fragmented packs");
     }
 
     if valid_pairs.is_empty() {
@@ -179,10 +197,13 @@ fn extract_archive(archive_path: &Path, target_dir: &Path, packs: &mut Vec<PathB
                 let _ = std::io::copy(&mut zip_file, &mut out_file);
 
                 if is_pack {
+                    trace!(file = %dest_path.display(), "Extracted .pack from archive");
                     packs.push(dest_path);
                 } else if is_list {
+                    trace!(file = %dest_path.display(), "Extracted .list from archive");
                     lists.push(dest_path);
                 } else if is_nested_apk {
+                    trace!(file = %dest_path.display(), "Found nested archive");
                     nested_archives.push(dest_path);
                 }
             }

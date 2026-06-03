@@ -6,11 +6,6 @@ If you would like a more feature-complete, polished, updated, or low-tech experi
 
 Commands utilizing these binaries may have to be prefixed with `./` or `.\` depending on your operating system.
 
-### NOTICE
-This repository and it's binaries are for convenience and convenience only. I will **not** maintain this repository or any of the binaries under it to any reasonable degree. Use at your own risk.
-
-
-
 ## BCC-Apk
 **COMMAND:** `bcc-apk`
 
