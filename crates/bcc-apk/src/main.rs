@@ -125,14 +125,14 @@ fn handle_patch_command(
     let final_force_action = override_force.map(|action_string| action_string.to_lowercase());
     if let Some(ref selected_action) = final_force_action {
         if !["update", "u", "create", "c"].contains(&selected_action.as_str()) {
-            println!("\n\x1b[31m  ✗ Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c).\x1b[0m\n", selected_action);
+            println!("\n\x1b[31m  ✗ Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c)\x1b[0m\n", selected_action);
             return;
         }
     }
 
     let resolved_apk_path = PathBuf::from(target_apk);
     if !resolved_apk_path.exists() {
-        println!("\n\x1b[31m  ✗ APK file not found at specified path.\x1b[0m\n");
+        println!("\n\x1b[31m  ✗ APK file not found at specified path\x1b[0m\n");
         return;
     }
 
