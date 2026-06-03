@@ -28,7 +28,7 @@ pub fn execute(input_target: &str) {
     let nyanko_keys = match keys.to_nyanko_keys() {
         Ok(valid_keys) => valid_keys,
         Err(error) => {
-            println!("\x1b[31m  ✗ ERROR: Failed to parse keys for decryption: {}\x1b[0m", error);
+            eprintln!("\x1b[31m  ✗ ERROR: Failed to parse keys for decryption: {}\x1b[0m", error);
             return;
         }
     };
@@ -137,7 +137,7 @@ pub fn execute(input_target: &str) {
 
     if temp_apk_dir.exists() {
         if let Err(error) = fs::remove_dir_all(&temp_apk_dir) {
-            println!("\n  \x1b[33m! ERROR\x1b[0m: Could not delete temporary 'apk' directory: {}", error);
+            eprintln!("\n  \x1b[33m! ERROR\x1b[0m: Could not delete temporary 'apk' directory: {}", error);
         } else {
             println!("  \x1b[32m✓\x1b[0m Cleaned up temporary APK files");
         }
@@ -146,6 +146,7 @@ pub fn execute(input_target: &str) {
     if total_extracted_count > 0 {
         println!("\nSUCCESS: Decrypted \x1b[36m{}\x1b[0m files!\n", total_extracted_count);
     } else {
-        println!("\nFAILURE: Decrypted no files!\n");
+        eprintln!("\nFAILURE: Decrypted no files!\n");
+        std::process::exit(1);
     }
 }

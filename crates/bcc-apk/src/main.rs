@@ -151,7 +151,8 @@ fn handle_patch_command(
             println!("\nSUCCESS: {} {}!\n", action_verb, output_filename);
         },
         Err(_) => {
-            println!("\nFAILURE: Couldnt patch APK!\n");
+            eprintln!("\nFAILURE: Couldnt patch APK!\n");
+            std::process::exit(1);
         }
     }
 }

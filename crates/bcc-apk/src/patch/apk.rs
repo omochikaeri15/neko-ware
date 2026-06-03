@@ -21,7 +21,7 @@ pub fn execute_patch(
     
     let current_keys = UserKeys::load();
     let valid_region_key = current_keys.get_validated_region_key(target_region).map_err(|error| {
-        println!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
+        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
         error
     })?;
 
@@ -35,12 +35,12 @@ pub fn execute_patch(
     
     let source_apk_file = fs::File::open(input_apk_path).map_err(|error| {
         let out = format!("Failed to open APK: {}", error);
-        println!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
         out
     })?;
     let mut zip_archive = ZipArchive::new(source_apk_file).map_err(|error| {
         let out = format!("Failed to read APK archive: {}", error);
-        println!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
         out
     })?;
 
@@ -75,7 +75,7 @@ pub fn execute_patch(
     let mut apk_manifest_editor = modify::ApkEditor::from_paths(&manifest_extraction_path, optional_resource_path)
         .map_err(|error| {
             let out = format!("Failed to parse APK binaries: {}", error);
-            println!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+            eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
             out
         })?;
     
@@ -99,14 +99,14 @@ pub fn execute_patch(
         apk_manifest_editor.apply_patches(target_package_suffix, target_app_title)
             .map_err(|error| {
                 let out = format!("Patch Error: {}", error);
-                println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+                eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
                 out
             })?;
 
         apk_manifest_editor.save_to_paths(&manifest_extraction_path, optional_resource_path)
             .map_err(|error| {
                 let out = format!("Failed to save patched binaries: {}", error);
-                println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+                eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
                 out
             })?;
     }
@@ -117,10 +117,10 @@ pub fn execute_patch(
         "DownloadLocal",
         valid_region_key
     ).map_err(|error| {
-        println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
+        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
         error
     })?;
-    println!("  \x1b[32m✓\x1b[0m Packaged \x1b[36m{}\x1b[0m files into a pack", packed_files_count);
+    eprintln!("  \x1b[32m✓\x1b[0m Packaged \x1b[36m{}\x1b[0m files into a pack", packed_files_count);
     
     let unsigned_apk_path = application_directory.join("unsigned_final.apk");
 
@@ -133,7 +133,7 @@ pub fn execute_patch(
         if is_update { None } else { Some(manifest_extraction_path.as_path()) },
         if is_update || !extracted_resource_table { None } else { Some(resource_extraction_path.as_path()) }
     ).map_err(|error| {
-        println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
+        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
         error
     })?;
     println!("  \x1b[32m✓\x1b[0m Rebuilt modified APK");
@@ -141,14 +141,14 @@ pub fn execute_patch(
     
     let normalized_apk_path = application_directory.join("normalized_final.apk");
     modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, input_apk_path).map_err(|error| {
-        println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
+        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
         error
     })?;
     println!("  \x1b[32m✓\x1b[0m Normalized binaries");
     
     sign::sign_apk_file(&normalized_apk_path).map_err(|error| {
         let out = error.to_string();
-        println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
         out
     })?;
     println!("  \x1b[32m✓\x1b[0m Signed APK");
@@ -184,7 +184,7 @@ pub fn execute_patch(
 
     fs::copy(&normalized_apk_path, &destination_file_path).map_err(|error| {
         let out = format!("Failed to copy to output target: {}", error);
-        println!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
         out
     })?;
 

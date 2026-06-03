@@ -68,10 +68,10 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
     for (stem, (packs, lists)) in grouped_files {
         if packs.len() > 1 || lists.len() > 1 {
             has_skipped_items = true;
-            println!("  \x1b[33m! ERROR\x1b[0m: Conflict for \x1b[36m{}\x1b[0m found:", stem);
-            for pack_path in &packs { println!("    - {}", pack_path.display()); }
-            for list_path in &lists { println!("    - {}", list_path.display()); }
-            println!();
+            eprintln!("  \x1b[33m! ERROR\x1b[0m: Conflict for \x1b[36m{}\x1b[0m found:", stem);
+            for pack_path in &packs { eprintln!("    - {}", pack_path.display()); }
+            for list_path in &lists { eprintln!("    - {}", list_path.display()); }
+            eprintln!();
             continue;
         }
 
@@ -92,10 +92,10 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
 
         if pack_path.parent() != list_path.parent() {
             has_skipped_items = true;
-            println!("  \x1b[33m! ERROR\x1b[0m: \x1b[36m{}\x1b[0m pack and list are in different directories:", stem);
-            println!("    - Pack: {}", pack_path.display());
-            println!("    - List: {}", list_path.display());
-            println!();
+            eprintln!("  \x1b[33m! ERROR\x1b[0m: \x1b[36m{}\x1b[0m pack and list are in different directories:", stem);
+            eprintln!("    - Pack: {}", pack_path.display());
+            eprintln!("    - List: {}", list_path.display());
+            eprintln!();
             continue;
         }
 
@@ -103,17 +103,17 @@ pub fn scan_and_resolve(input_path: &Path) -> Result<Vec<PackPair>, String> {
     }
 
     if !missing_pack_stems.is_empty() || !missing_list_stems.is_empty() {
-        println!("  \x1b[33m! ERROR\x1b[0m: The following .list files have no matching .pack file:");
-        for stem in &missing_pack_stems { println!("    - \x1b[36m{}\x1b[0m.list", stem); }
-        println!();
+        eprintln!("  \x1b[33m! ERROR\x1b[0m: The following .list files have no matching .pack file:");
+        for stem in &missing_pack_stems { eprintln!("    - \x1b[36m{}\x1b[0m.list", stem); }
+        eprintln!();
 
-        println!("  \x1b[33m! ERROR\x1b[0m: The following .pack files have no matching .list file:");
-        for stem in &missing_list_stems { println!("    - \x1b[36m{}\x1b[0m.pack", stem); }
-        println!();
+        eprintln!("  \x1b[33m! ERROR\x1b[0m: The following .pack files have no matching .list file:");
+        for stem in &missing_list_stems { eprintln!("    - \x1b[36m{}\x1b[0m.pack", stem); }
+        eprintln!();
     }
 
     if has_skipped_items {
-        println!("  \x1b[31m✗\x1b[0m Skipping conflicting and fragmented packs\n");
+        eprintln!("  \x1b[31m✗\x1b[0m Skipping conflicting and fragmented packs\n");
     }
 
     if valid_pairs.is_empty() {
