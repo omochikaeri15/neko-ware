@@ -2,7 +2,7 @@ mod config;
 mod io;
 mod keys;
 mod readme;
-pub mod logic;
+pub mod patch;
 pub mod workspace;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -136,7 +136,7 @@ fn handle_patch_command(
         return;
     }
 
-    match logic::apk::execute_patch(
+    match patch::apk::execute_patch(
         &resolved_apk_path,
         &PathBuf::from(final_patch_dir),
         &PathBuf::from(final_icons_dir),

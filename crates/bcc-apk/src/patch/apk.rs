@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use crate::keys::UserKeys;
-use crate::logic::modify;
-use crate::logic::pack;
-use crate::logic::sign;
+use crate::patch::modify;
+use crate::patch::pack;
+use crate::patch::sign;
 
 pub fn execute_patch(
     input_apk_path: &Path,
