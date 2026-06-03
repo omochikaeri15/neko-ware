@@ -1,7 +1,6 @@
 mod config;
 mod io;
 mod keys;
-mod readme;
 pub mod patch;
 pub mod workspace;
 pub mod pem;

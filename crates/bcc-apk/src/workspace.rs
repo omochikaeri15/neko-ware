@@ -2,7 +2,8 @@ use std::fs;
 use crate::io::get_local_dir;
 use crate::keys::UserKeys;
 use crate::config::AppConfig;
-use crate::readme;
+
+const README_CONTENT: &[u8] = include_bytes!("../README.md");
 
 pub fn init() -> std::io::Result<()> {
     let default_keys = UserKeys::default();
@@ -11,7 +12,9 @@ pub fn init() -> std::io::Result<()> {
     let active_config = AppConfig::default();
     active_config.save();
 
-    readme::generate()?;
+    let mut readme_path = get_local_dir();
+    readme_path.push("README.md");
+    fs::write(readme_path, README_CONTENT)?;
 
     let base_directory = get_local_dir();
 
