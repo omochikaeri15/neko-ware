@@ -4,7 +4,7 @@ use crate::keys::UserKeys;
 use crate::config::AppConfig;
 use tracing::debug;
 
-const README_CONTENT: &[u8] = include_bytes!("../README.md");
+const README_CONTENT: &[u8] = include_bytes!("../DEFAULT.md");
 
 pub fn init(_show_ui: bool) -> std::io::Result<()> {
     debug!("Initializing default workspace configurations...");
