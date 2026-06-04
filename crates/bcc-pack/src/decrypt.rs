@@ -9,7 +9,7 @@ use crate::keys::UserKeys;
 use crate::scanner::scan_and_resolve;
 use nyanko::pack::cryptology::{self, check_integrity};
 
-pub fn execute(input_target: &str, show_ui: bool, force: bool) {
+pub fn execute(input_target: &str, show_ui: bool, force: bool, output_dir: Option<&str>) {
     debug!(target = input_target, "Starting decryption process");
     let input_path = Path::new(input_target);
     let keys = UserKeys::load();
@@ -57,12 +57,18 @@ pub fn execute(input_target: &str, show_ui: bool, force: bool) {
         }
     };
 
-    let mut output_base = get_local_dir();
-    output_base.push("decrypted");
+    let output_base = if let Some(custom_dir) = output_dir {
+        Path::new(custom_dir).to_path_buf()
+    } else {
+        let mut default_dir = get_local_dir();
+        default_dir.push("decrypted");
+        default_dir
+    };
+
     let mut total_extracted_count = 0;
 
     for pair in pairs {
-        debug!(pack = %pair.name, "Processing pack pair");
+        debug!(pack = %pair.name, output_dir = %output_base.display(), "Processing pack pair");
 
         let Ok(list_data) = fs::read(&pair.list_path) else {
             if show_ui { println!("  {} Failed to extract files from {} (Could not read .list file)", "✗".red(), pair.name.cyan()); }
@@ -137,7 +143,7 @@ pub fn execute(input_target: &str, show_ui: bool, force: bool) {
 
             if fs::write(&final_path, clean_data).is_ok() {
                 extracted_count += 1;
-                trace!(asset = %asset_name, pack = %pair.name, size = strict_limit, "File successfully extracted to disk");
+                trace!(asset = %asset_name, pack = %pair.name, size = strict_limit, dest = %final_path.display(), "File successfully extracted to disk");
             } else {
                 trace!(asset = %asset_name, pack = %pair.name, "Failed to write extracted file to disk");
             }
@@ -152,7 +158,7 @@ pub fn execute(input_target: &str, show_ui: bool, force: bool) {
                 warn!(pack = %pair.name, corrupted = corrupted_count, "Skipped corrupted files");
             }
             if show_ui { println!("  {} Extracted {} files to decrypted/{}/", "✓".green(), extracted_count.to_string().cyan(), pair.name.cyan()); }
-            info!(pack = %pair.name, extracted = extracted_count, "Files extracted successfully");
+            info!(pack = %pair.name, extracted = extracted_count, dest = %pack_output_dir.display(), "Files extracted successfully");
         } else if corrupted_count > 0 {
             if show_ui { println!("  {} Skipped corrupted extraction of {}", "✗".red(), pair.name.cyan()); }
             error!(pack = %pair.name, corrupted = corrupted_count, "Skipped completely corrupted pack");

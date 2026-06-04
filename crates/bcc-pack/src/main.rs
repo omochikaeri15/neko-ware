@@ -39,6 +39,8 @@ enum Commands {
         input: String,
         #[arg(short, long, help = "Force decryption and skip key validation prompts")]
         force: bool,
+        #[arg(short, long, help = "Override the default output directory")]
+        output: Option<String>,
     },
 }
 
@@ -111,8 +113,8 @@ fn main() {
                 UserKeys::print_env_template(show_ui);
             }
         },
-        Some(Commands::Decrypt { input, force }) => {
-            decrypt::execute(&input, show_ui, force);
+        Some(Commands::Decrypt { input, force, output }) => {
+            decrypt::execute(&input, show_ui, force, output.as_deref());
         }
         None => {
             let mut cmd = Cli::command();
