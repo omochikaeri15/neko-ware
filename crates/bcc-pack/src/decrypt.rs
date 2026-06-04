@@ -65,6 +65,11 @@ pub fn execute(input_target: &str, show_ui: bool, force: bool, output_dir: Optio
         default_dir
     };
 
+    let display_base = output_base
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or("decrypted");
+
     let mut total_extracted_count = 0;
 
     for pair in pairs {
@@ -157,7 +162,7 @@ pub fn execute(input_target: &str, show_ui: bool, force: bool, output_dir: Optio
                 if show_ui { println!("  {} Skipped {} corrupted files in {}", "✗".red(), corrupted_count.to_string().cyan(), pair.name.cyan()); }
                 warn!(pack = %pair.name, corrupted = corrupted_count, "Skipped corrupted files");
             }
-            if show_ui { println!("  {} Extracted {} files to decrypted/{}/", "✓".green(), extracted_count.to_string().cyan(), pair.name.cyan()); }
+            if show_ui { println!("  {} Extracted {} files to {}/{}/", "✓".green(), extracted_count.to_string().cyan(), display_base, pair.name.cyan()); }
             info!(pack = %pair.name, extracted = extracted_count, dest = %pack_output_dir.display(), "Files extracted successfully");
         } else if corrupted_count > 0 {
             if show_ui { println!("  {} Skipped corrupted extraction of {}", "✗".red(), pair.name.cyan()); }
