@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::io::{Read, Write, Cursor};
 use zip::{ZipArchive, ZipWriter};
 use tracing::{debug, trace};
+use anyhow::{Context, Result};
 
 use resand::{
     res_value::{ResValue, ResValueType},
@@ -62,7 +63,7 @@ impl ApkEditor {
         let package_attribute = root_element.get_attribute_mut("package", &self.manifest.string_pool)?;
         match package_attribute.typed_value.data {
             ResValueType::String(ref string_value) => {
-                string_value.resolve(&self.manifest.string_pool).map(|s| s.to_string())
+                string_value.resolve(&mut self.manifest.string_pool).map(|s| s.to_string())
             },
             _ => None
         }
@@ -94,7 +95,7 @@ impl ApkEditor {
             .ok_or(ResError::MissingElement("package attribute"))?;
 
         let original_package_name = match package_attribute.typed_value.data {
-            ResValueType::String(ref string_value) => string_value.resolve(&self.manifest.string_pool).unwrap_or_default().to_string(),
+            ResValueType::String(ref string_value) => string_value.resolve(&mut self.manifest.string_pool).unwrap_or_default().to_string(),
             _ => return Err(ResError::MissingElement("Invalid package string format")),
         };
 
@@ -163,10 +164,11 @@ impl ApkEditor {
             }
         }
 
-        if let Some(ref mut mutable_table) = self.res_table
-            && let Some(first_package) = mutable_table.packages.first_mut() {
-                first_package.name = final_constructed_package_name.clone();
+        if let Some(ref mut mutable_table) = self.res_table {
+            if let Some(first_package) = mutable_table.packages.first_mut() {
+                first_package.name.clone_from(&final_constructed_package_name);
             }
+        }
 
         Ok(())
     }
@@ -206,11 +208,12 @@ fn replace_package_references(
             _ => {}
         }
 
-        if let Some(found_string) = resolved_string_value
-            && found_string.contains(old_package_identity) {
+        if let Some(found_string) = resolved_string_value {
+            if found_string.contains(old_package_identity) {
                 let replaced_value = found_string.replace(old_package_identity, new_package_identity);
                 attribute_node.write_string(replaced_value.into(), string_pool);
             }
+        }
     }
 
     for child_node in &mut element_node.children {
@@ -226,12 +229,12 @@ pub fn inject_and_build_apk(
     loose_directory: &Path,
     patched_manifest_path: Option<&Path>,
     patched_arsc_path: Option<&Path>,
-) -> Result<usize, String> {
+) -> Result<usize> {
 
-    let source_file = fs::File::open(source_apk_path).map_err(|error| error.to_string())?;
-    let mut zip_archive = ZipArchive::new(source_file).map_err(|error| error.to_string())?;
+    let source_file = fs::File::open(source_apk_path)?;
+    let mut zip_archive = ZipArchive::new(source_file)?;
 
-    let destination_file = fs::File::create(output_apk_path).map_err(|error| error.to_string())?;
+    let destination_file = fs::File::create(output_apk_path)?;
     let mut zip_writer = ZipWriter::new(destination_file);
 
     let mut successfully_injected_count = 0;
@@ -241,7 +244,7 @@ pub fn inject_and_build_apk(
     if patched_arsc_path.is_some() { active_files_to_inject.insert("resources.arsc".to_string()); }
 
     if assets_directory.exists() {
-        let directory_entries = fs::read_dir(assets_directory).map_err(|error| error.to_string())?;
+        let directory_entries = fs::read_dir(assets_directory)?;
         for entry_result in directory_entries.flatten() {
             if entry_result.path().is_file() {
                 active_files_to_inject.insert(format!("assets/{}", entry_result.file_name().to_string_lossy()));
@@ -250,7 +253,7 @@ pub fn inject_and_build_apk(
     }
 
     if loose_directory.exists() {
-        let directory_entries = fs::read_dir(loose_directory).map_err(|error| error.to_string())?;
+        let directory_entries = fs::read_dir(loose_directory)?;
         for entry_result in directory_entries.flatten() {
             if entry_result.path().is_file() {
                 active_files_to_inject.insert(format!("assets/{}", entry_result.file_name().to_string_lossy()));
@@ -265,7 +268,7 @@ pub fn inject_and_build_apk(
     let mut pre_existing_resource_folders = HashSet::new();
 
     for archive_index in 0..zip_archive.len() {
-        let archive_file = zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
+        let archive_file = zip_archive.by_index(archive_index)?;
         let internal_file_name = archive_file.name().to_string();
 
         let uppercase_file_name = internal_file_name.to_ascii_uppercase();
@@ -273,10 +276,11 @@ pub fn inject_and_build_apk(
             continue;
         }
 
-        if internal_file_name.starts_with("res/")
-            && let Some(parent_path) = Path::new(&internal_file_name).parent() {
+        if internal_file_name.starts_with("res/") {
+            if let Some(parent_path) = Path::new(&internal_file_name).parent() {
                 pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
             }
+        }
 
         if active_files_to_inject.contains(&internal_file_name) {
             continue;
@@ -289,18 +293,18 @@ pub fn inject_and_build_apk(
             if short_file_name == "push_icon.png" && has_custom_push_icon { continue; }
         }
 
-        zip_writer.raw_copy_file(archive_file).map_err(|error| error.to_string())?;
+        zip_writer.raw_copy_file(archive_file)?;
     }
 
-    let mut inject_local_file = |local_file_path: &Path, internal_zip_path: &str, require_store: bool| -> Result<(), String> {
+    let mut inject_local_file = |local_file_path: &Path, internal_zip_path: &str, require_store: bool| -> Result<()> {
         if !local_file_path.exists() { return Ok(()); }
 
-        let raw_file_data = fs::read(local_file_path).map_err(|error| error.to_string())?;
+        let raw_file_data = fs::read(local_file_path)?;
         let compression_method = if require_store { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
         let write_options = zip::write::SimpleFileOptions::default().compression_method(compression_method);
 
-        zip_writer.start_file(internal_zip_path, write_options).map_err(|error| error.to_string())?;
-        zip_writer.write_all(&raw_file_data).map_err(|error| error.to_string())?;
+        zip_writer.start_file(internal_zip_path, write_options)?;
+        zip_writer.write_all(&raw_file_data)?;
         successfully_injected_count += 1;
         trace!(file = %internal_zip_path, "Injected modified payload into APK stream");
         Ok(())
@@ -310,22 +314,22 @@ pub fn inject_and_build_apk(
     if let Some(arsc_path) = patched_arsc_path { inject_local_file(arsc_path, "resources.arsc", true)?; }
 
     if assets_directory.exists() {
-        let directory_entries = fs::read_dir(assets_directory).map_err(|error| error.to_string())?;
+        let directory_entries = fs::read_dir(assets_directory)?;
         for entry_result in directory_entries.flatten() {
             if entry_result.path().is_file() {
                 let generated_name = entry_result.file_name().to_string_lossy().to_string();
                 let force_store = generated_name.ends_with(".pack") || generated_name.ends_with(".list");
-                inject_local_file(&entry_result.path(), &format!("assets/{}", generated_name), force_store)?;
+                inject_local_file(&entry_result.path(), &format!("assets/{generated_name}"), force_store)?;
             }
         }
     }
 
     if loose_directory.exists() {
-        let directory_entries = fs::read_dir(loose_directory).map_err(|error| error.to_string())?;
+        let directory_entries = fs::read_dir(loose_directory)?;
         for entry_result in directory_entries.flatten() {
             if entry_result.path().is_file() {
                 let generated_name = entry_result.file_name().to_string_lossy().to_string();
-                inject_local_file(&entry_result.path(), &format!("assets/{}", generated_name), true)?;
+                inject_local_file(&entry_result.path(), &format!("assets/{generated_name}"), true)?;
             }
         }
     }
@@ -359,11 +363,11 @@ pub fn inject_and_build_apk(
             ];
 
             for (target_folder_name, target_size) in target_resolutions {
-                let formatted_resource_folder = format!("res/{}", target_folder_name);
+                let formatted_resource_folder = format!("res/{target_folder_name}");
 
                 if !pre_existing_resource_folders.contains(&formatted_resource_folder) { continue; }
 
-                let final_zip_path = format!("{}/{}", formatted_resource_folder, blueprint_file_name);
+                let final_zip_path = format!("{formatted_resource_folder}/{blueprint_file_name}");
                 let properly_scaled_image = decoded_source_image.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3);
 
                 let mut memory_cursor = Cursor::new(Vec::new());
@@ -379,48 +383,48 @@ pub fn inject_and_build_apk(
         }
     }
 
-    zip_writer.finish().map_err(|error| error.to_string())?;
+    zip_writer.finish()?;
     Ok(successfully_injected_count)
 }
 
-pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_reference_apk: &Path) -> Result<(), String> {
+pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_reference_apk: &Path) -> Result<()> {
     let mut stored_files_ledger = HashSet::new();
 
-    let reference_file = fs::File::open(original_reference_apk).map_err(|error| format!("Failed to open original APK: {}", error))?;
-    let mut reference_zip_archive = ZipArchive::new(reference_file).map_err(|error| format!("Failed to read original APK: {}", error))?;
+    let reference_file = fs::File::open(original_reference_apk).context("Failed to open original APK")?;
+    let mut reference_zip_archive = ZipArchive::new(reference_file).context("Failed to read original APK")?;
 
     for archive_index in 0..reference_zip_archive.len() {
-        let archive_file = reference_zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
+        let archive_file = reference_zip_archive.by_index(archive_index)?;
         if archive_file.compression() == zip::CompressionMethod::Stored {
             let archive_file_name = archive_file.name().to_string();
             stored_files_ledger.insert(archive_file_name);
         }
     }
 
-    let current_source_file = fs::File::open(input_apk_path).map_err(|error| format!("Failed to open APK: {}", error))?;
-    let mut current_zip_archive = ZipArchive::new(current_source_file).map_err(|error| format!("Failed to read APK archive: {}", error))?;
+    let current_source_file = fs::File::open(input_apk_path).context("Failed to open APK")?;
+    let mut current_zip_archive = ZipArchive::new(current_source_file).context("Failed to read APK archive")?;
 
-    let output_destination_file = fs::File::create(output_apk_path).map_err(|error| format!("Failed to create normalized APK: {}", error))?;
+    let output_destination_file = fs::File::create(output_apk_path).context("Failed to create normalized APK")?;
     let mut final_zip_writer = ZipWriter::new(output_destination_file);
 
     let uncompressed_extension_overrides = ["dex", "arsc", "so", "pack", "list", "ogg"];
 
     for archive_index in 0..current_zip_archive.len() {
-        let mut inner_archive_file = current_zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
+        let mut inner_archive_file = current_zip_archive.by_index(archive_index)?;
 
         let internal_file_name = inner_archive_file.name().to_string();
-        let internal_file_extension = Path::new(&internal_file_name).extension().and_then(|extension_string| extension_string.to_str()).unwrap_or("");
+        let internal_file_extension = Path::new(&internal_file_name).extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
         let requires_forced_store = uncompressed_extension_overrides.contains(&internal_file_extension);
         let was_historically_stored = stored_files_ledger.contains(&internal_file_name);
 
         if !requires_forced_store && !was_historically_stored {
-            final_zip_writer.raw_copy_file(inner_archive_file).map_err(|error| error.to_string())?;
+            final_zip_writer.raw_copy_file(inner_archive_file)?;
             continue;
         }
 
         let mut extracted_file_data = Vec::new();
-        inner_archive_file.read_to_end(&mut extracted_file_data).map_err(|error| format!("Failed reading {}: {}", internal_file_name, error))?;
+        inner_archive_file.read_to_end(&mut extracted_file_data).context(format!("Failed reading {internal_file_name}"))?;
 
         let required_byte_alignment = if internal_file_extension == "so" { 4096 } else { 4 };
 
@@ -428,11 +432,11 @@ pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_ref
             .compression_method(zip::CompressionMethod::Stored)
             .with_alignment(required_byte_alignment);
 
-        final_zip_writer.start_file(&internal_file_name, normalized_write_options).map_err(|error| error.to_string())?;
-        final_zip_writer.write_all(&extracted_file_data).map_err(|error| error.to_string())?;
+        final_zip_writer.start_file(&internal_file_name, normalized_write_options)?;
+        final_zip_writer.write_all(&extracted_file_data)?;
         trace!(file = %internal_file_name, "Re-aligned structural storage data block");
     }
 
-    final_zip_writer.finish().map_err(|error| error.to_string())?;
+    final_zip_writer.finish()?;
     Ok(())
 }
