@@ -239,14 +239,14 @@ impl UserKeys {
             "EN" => (&self.en, EXPECTED_HASHES[1]),
             "TW" => (&self.tw, EXPECTED_HASHES[2]),
             "KR" => (&self.ko, EXPECTED_HASHES[3]),
-            _ => return Err(format!("Unknown region identifier: {}", target_region)),
+            _ => return Err(format!("Unknown region identifier: {target_region}")),
         };
 
         if !validate_hash(&region_key.key, expected_hash.0) {
-            return Err(format!("{} Region Key is invalid or missing", target_region));
+            return Err(format!("{target_region} Region Key is invalid or missing"));
         }
         if !validate_hash(&region_key.iv, expected_hash.1) {
-            return Err(format!("{} Region IV is invalid or missing", target_region));
+            return Err(format!("{target_region} Region IV is invalid or missing"));
         }
 
         Ok(region_key)
@@ -256,12 +256,12 @@ impl UserKeys {
 fn print_region_row(region_name: &str, key_value: &str, iv_value: &str, is_valid: (bool, bool)) {
     let formatted_key = format_table_cell(key_value, is_valid.0);
     let formatted_iv = format_table_cell(iv_value, is_valid.1);
-    println!("{:<6} | {} | {}", region_name, formatted_key, formatted_iv);
+    println!("{region_name:<6} | {formatted_key} | {formatted_iv}");
 }
 
 fn format_table_cell(cell_value: &str, is_valid: bool) -> ColoredString {
-    let quoted_string = format!("\"{}\"", cell_value);
-    let padded_string = format!("{:<34}", quoted_string);
+    let quoted_string = format!("\"{cell_value}\"");
+    let padded_string = format!("{quoted_string:<34}");
 
     if is_valid {
         padded_string.green()
@@ -271,7 +271,7 @@ fn format_table_cell(cell_value: &str, is_valid: bool) -> ColoredString {
 }
 
 fn prompt_for_field(label_message: &str) -> String {
-    print!("{}", label_message);
+    print!("{label_message}");
     if stdout().flush().is_err() {
         return String::new();
     }

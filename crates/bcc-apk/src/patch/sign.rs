@@ -91,7 +91,7 @@ impl Signer {
             .decode(isolated_base64_certificate)
             .context("Failed to base64 decode certificate")?;
         let parsed_certificate_der = rasn::der::decode::<Certificate>(&raw_der_decoded_bytes)
-            .map_err(|error| anyhow::anyhow!("Failed to parse ASN.1 Certificate: {}", error))?;
+            .map_err(|error| anyhow::anyhow!("Failed to parse ASN.1 Certificate: {error}"))?;
 
         debug!("Derived RSA Private Key and loaded ASN.1 X.509 Certificate successfully");
         Ok(Self {
@@ -241,7 +241,7 @@ impl SignedDataBlock {
         Ok(Self {
             attached_digests: vec![DigestData::new(computed_hash)],
             attached_certificates: vec![
-                rasn::der::encode(active_signer.cert()).map_err(|error| anyhow::anyhow!("{}", error))?,
+                rasn::der::encode(active_signer.cert()).map_err(|error| anyhow::anyhow!("{error}"))?,
             ],
             attached_additional_attributes: vec![],
         })

@@ -1,6 +1,6 @@
 use colored::Colorize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
 
@@ -251,7 +251,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     } else {
         let _ = fs::create_dir_all(&config.output_directory_path);
 
-        let sanitized_title = config.target_app_title.trim().replace('\\', "_").replace('/', "_");
+        let sanitized_title = config.target_app_title.trim().replace(['\\', '/'], "_");
 
         let base_title = if sanitized_title.is_empty() {
             "modded_aligned".to_string()

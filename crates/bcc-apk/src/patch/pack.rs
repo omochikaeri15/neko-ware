@@ -56,14 +56,14 @@ pub fn stream_pack_and_list(
         None
     };
 
-    let pack_output_path = destination_directory.join(format!("{}.pack", target_pack_name));
-    let list_output_path = destination_directory.join(format!("{}.list", target_pack_name));
+    let pack_output_path = destination_directory.join(format!("{target_pack_name}.pack"));
+    let list_output_path = destination_directory.join(format!("{target_pack_name}.list"));
 
     let generated_pack_file =
-        File::create(&pack_output_path).map_err(|error| format!("Failed to create pack stream file: {}", error))?;
+        File::create(&pack_output_path).map_err(|error| format!("Failed to create pack stream file: {error}"))?;
     let mut buffered_pack_writer = BufWriter::new(generated_pack_file);
 
-    let mut cumulative_list_string = format!("{}\n", total_files_count);
+    let mut cumulative_list_string = format!("{total_files_count}\n");
     let mut current_byte_address = 0;
 
     for (active_file_path, _file_size) in valid_files_with_sizes.iter() {
@@ -74,7 +74,7 @@ pub fn stream_pack_and_list(
             .to_string();
 
         let mut raw_file_data =
-            fs::read(active_file_path).map_err(|error| format!("Failed to read {}: {}", extracted_filename, error))?;
+            fs::read(active_file_path).map_err(|error| format!("Failed to read {extracted_filename}: {error}"))?;
 
         let (active_cipher_key, active_cipher_iv) = match &parsed_standard_keys {
             Some((resolved_key_array, resolved_iv_array)) => (Some(resolved_key_array), Some(resolved_iv_array)),
@@ -83,16 +83,15 @@ pub fn stream_pack_and_list(
 
         raw_file_data =
             cryptology::encrypt_chunk(&raw_file_data, resolved_pack_type, active_cipher_key, active_cipher_iv)
-                .map_err(|error| format!("Encryption failed for {}: {}", extracted_filename, error))?;
+                .map_err(|error| format!("Encryption failed for {extracted_filename}: {error}"))?;
 
         buffered_pack_writer
             .write_all(&raw_file_data)
-            .map_err(|error| format!("Failed to write to pack buffer: {}", error))?;
+            .map_err(|error| format!("Failed to write to pack buffer: {error}"))?;
 
         let newly_encrypted_size = raw_file_data.len();
         cumulative_list_string.push_str(&format!(
-            "{},{},{}\n",
-            extracted_filename, current_byte_address, newly_encrypted_size
+            "{extracted_filename},{current_byte_address},{newly_encrypted_size}\n"
         ));
         current_byte_address += newly_encrypted_size;
 
@@ -101,14 +100,14 @@ pub fn stream_pack_and_list(
 
     buffered_pack_writer
         .flush()
-        .map_err(|error| format!("Failed to flush pack stream to disk: {}", error))?;
+        .map_err(|error| format!("Failed to flush pack stream to disk: {error}"))?;
     debug!("Successfully flushed multi-gigabyte pack stream buffer to physical disk");
 
     let encrypted_list_bytes = cryptology::encrypt_list(&cumulative_list_string)
-        .map_err(|error| format!("Failed to encrypt list file: {}", error))?;
+        .map_err(|error| format!("Failed to encrypt list file: {error}"))?;
 
     fs::write(list_output_path, encrypted_list_bytes)
-        .map_err(|error| format!("Failed to write list file: {}", error))?;
+        .map_err(|error| format!("Failed to write list file: {error}"))?;
 
     Ok(total_files_count)
 }

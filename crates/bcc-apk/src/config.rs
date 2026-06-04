@@ -125,7 +125,7 @@ impl AppConfig {
 }
 
 fn request_user_input(prompt_message: &str) -> String {
-    print!("{}", prompt_message);
+    print!("{prompt_message}");
     let _flush_result = stdout().flush();
     let mut captured_input = String::new();
     let _read_result = stdin().read_line(&mut captured_input);

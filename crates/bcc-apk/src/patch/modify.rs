@@ -67,7 +67,7 @@ impl ApkEditor {
         let package_attribute = root_element.get_attribute_mut("package", &self.manifest.string_pool)?;
         match package_attribute.typed_value.data {
             ResValueType::String(ref string_value) => string_value
-                .resolve(&mut self.manifest.string_pool)
+                .resolve(&self.manifest.string_pool)
                 .map(|s| s.to_string()),
             _ => None,
         }
@@ -110,7 +110,7 @@ impl ApkEditor {
 
         let original_package_name = match package_attribute.typed_value.data {
             ResValueType::String(ref string_value) => string_value
-                .resolve(&mut self.manifest.string_pool)
+                .resolve(&self.manifest.string_pool)
                 .unwrap_or_default()
                 .to_string(),
             _ => return Err(ResError::MissingElement("Invalid package string format")),
@@ -204,11 +204,10 @@ impl ApkEditor {
             }
         }
 
-        if let Some(ref mut mutable_table) = self.res_table {
-            if let Some(first_package) = mutable_table.packages.first_mut() {
+        if let Some(ref mut mutable_table) = self.res_table
+            && let Some(first_package) = mutable_table.packages.first_mut() {
                 first_package.name.clone_from(&final_constructed_package_name);
             }
-        }
 
         Ok(())
     }
@@ -262,12 +261,11 @@ fn replace_package_references(
             _ => {}
         }
 
-        if let Some(found_string) = resolved_string_value {
-            if found_string.contains(old_package_identity) {
+        if let Some(found_string) = resolved_string_value
+            && found_string.contains(old_package_identity) {
                 let replaced_value = found_string.replace(old_package_identity, new_package_identity);
                 attribute_node.write_string(replaced_value.into(), string_pool);
             }
-        }
     }
 
     for child_node in &mut element_node.children {
@@ -342,11 +340,10 @@ pub fn inject_and_build_apk(
             continue;
         }
 
-        if internal_file_name.starts_with("res/") {
-            if let Some(parent_path) = Path::new(&internal_file_name).parent() {
+        if internal_file_name.starts_with("res/")
+            && let Some(parent_path) = Path::new(&internal_file_name).parent() {
                 pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
             }
-        }
 
         if active_files_to_inject.contains(&internal_file_name) {
             continue;
