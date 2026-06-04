@@ -2,15 +2,15 @@ mod config;
 mod io;
 mod keys;
 pub mod patch;
-pub mod workspace;
 pub mod pem;
+pub mod workspace;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
+use colored::Colorize;
 use config::AppConfig;
 use keys::UserKeys;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
-use colored::Colorize;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -149,26 +149,38 @@ fn main() {
 fn handle_pem_command(action_type: PemAction, show_ui: bool) {
     match action_type {
         PemAction::Generate => {
-            if show_ui { println!("\n  {} Generating new RSA-2048 Identity", "!".yellow()); }
+            if show_ui {
+                println!("\n  {} Generating new RSA-2048 Identity", "!".yellow());
+            }
             tracing::info!("Generating new RSA-2048 Identity");
 
             match pem::generate_pem() {
                 Ok(new_pem) => match pem::save_pem(&new_pem) {
                     Ok(_) => {
-                        if show_ui { println!("  {} Successfully created and saved {}!\n", "✓".green(), "debug.pem".cyan()); }
+                        if show_ui {
+                            println!(
+                                "  {} Successfully created and saved {}!\n",
+                                "✓".green(),
+                                "debug.pem".cyan()
+                            );
+                        }
                         tracing::info!("Successfully created and saved debug.pem");
-                    },
+                    }
                     Err(e) => {
-                        if show_ui { println!("  {} Failed to save PEM: {}\n", "✗".red(), e); }
+                        if show_ui {
+                            println!("  {} Failed to save PEM: {}\n", "✗".red(), e);
+                        }
                         tracing::error!(error = %e, "Failed to save PEM");
-                    },
+                    }
                 },
                 Err(e) => {
-                    if show_ui { println!("  {} Failed to generate PEM: {}\n", "✗".red(), e); }
+                    if show_ui {
+                        println!("  {} Failed to generate PEM: {}\n", "✗".red(), e);
+                    }
                     tracing::error!(error = %e, "Failed to generate PEM");
-                },
+                }
             }
-        },
+        }
         PemAction::Env => {
             pem::print_env_template(show_ui);
         }
@@ -185,36 +197,49 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
     let final_app_name = args.app_name.unwrap_or(base_config.app_name);
     let final_pem_file = args.pem_file.or(base_config.pem_file);
 
-    let final_package_suffix = args.package_suffix
+    let final_package_suffix = args
+        .package_suffix
         .unwrap_or(base_config.package_suffix)
         .chars()
         .filter(|character| !character.is_whitespace())
         .collect::<String>()
         .to_lowercase();
 
-    let final_region = args.region
-        .unwrap_or(base_config.region)
-        .trim()
-        .to_uppercase();
+    let final_region = args.region.unwrap_or(base_config.region).trim().to_uppercase();
 
     let valid_regions = ["JP", "EN", "TW", "KR"];
     if !valid_regions.contains(&final_region.as_str()) {
-        if show_ui { println!("\n  {} Invalid Region: '{}'. Must be JP, EN, TW, or KR.\n", "✗".red(), final_region.cyan()); }
+        if show_ui {
+            println!(
+                "\n  {} Invalid Region: '{}'. Must be JP, EN, TW, or KR.\n",
+                "✗".red(),
+                final_region.cyan()
+            );
+        }
         tracing::error!(region = %final_region, "Invalid region provided");
         return;
     }
 
     let final_force_action = args.force_action.map(|action_string| action_string.to_lowercase());
     if let Some(ref selected_action) = final_force_action
-        && !["update", "u", "create", "c"].contains(&selected_action.as_str()) {
-            if show_ui { println!("\n  {} Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c)\n", "✗".red(), selected_action.cyan()); }
-            tracing::error!(flag = %selected_action, "Invalid force flag provided");
-            return;
+        && !["update", "u", "create", "c"].contains(&selected_action.as_str())
+    {
+        if show_ui {
+            println!(
+                "\n  {} Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c)\n",
+                "✗".red(),
+                selected_action.cyan()
+            );
         }
+        tracing::error!(flag = %selected_action, "Invalid force flag provided");
+        return;
+    }
 
     let resolved_apk_path = PathBuf::from(&args.apk_path);
     if !resolved_apk_path.exists() {
-        if show_ui { println!("\n  {} APK file not found at specified path\n", "✗".red()); }
+        if show_ui {
+            println!("\n  {} APK file not found at specified path\n", "✗".red());
+        }
         tracing::error!(path = %args.apk_path, "APK file not found");
         return;
     }
@@ -235,11 +260,15 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
 
     match patch::apk::execute_patch(&patch_config) {
         Ok((action_verb, output_filename)) => {
-            if show_ui { println!("\nSUCCESS: {} {}!\n", action_verb, output_filename.cyan()); }
+            if show_ui {
+                println!("\nSUCCESS: {} {}!\n", action_verb, output_filename.cyan());
+            }
             tracing::info!(action = %action_verb, file = %output_filename, "APK Patching complete");
-        },
+        }
         Err(_) => {
-            if show_ui { println!("\nFAILURE: Couldnt patch APK!\n"); }
+            if show_ui {
+                println!("\nFAILURE: Couldnt patch APK!\n");
+            }
             tracing::error!("Failed to patch APK");
             std::process::exit(1);
         }
@@ -249,11 +278,18 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
 fn handle_init_command(show_ui: bool) {
     match workspace::init(show_ui) {
         Ok(_) => {
-            if show_ui { println!("\n  {} Workspace initialized! Created config files and directories.\n", "✓".green()); }
+            if show_ui {
+                println!(
+                    "\n  {} Workspace initialized! Created config files and directories.\n",
+                    "✓".green()
+                );
+            }
             tracing::info!("Workspace initialized successfully");
         }
         Err(err) => {
-            if show_ui { println!("\n  {} Failed to initialize workspace: {}\n", "✗".red(), err); }
+            if show_ui {
+                println!("\n  {} Failed to initialize workspace: {}\n", "✗".red(), err);
+            }
             tracing::error!(error = %err, "Failed to initialize workspace");
         }
     }

@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
 use crate::io::{load_local, save_local};
-use std::io::{stdin, stdout, Write};
-use colored::{Colorize, ColoredString};
-use tracing::{info, error};
+use colored::{ColoredString, Colorize};
+use serde::{Deserialize, Serialize};
+use std::io::{Write, stdin, stdout};
+use tracing::{error, info};
 
 pub const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
@@ -35,17 +35,33 @@ impl UserKeys {
             load_local("keys").unwrap_or_default()
         };
 
-        if let Ok(env_key) = std::env::var("BCC_KEY_JP") { current_keys.ja.key = env_key; }
-        if let Ok(env_iv) = std::env::var("BCC_IV_JP") { current_keys.ja.iv = env_iv; }
+        if let Ok(env_key) = std::env::var("BCC_KEY_JP") {
+            current_keys.ja.key = env_key;
+        }
+        if let Ok(env_iv) = std::env::var("BCC_IV_JP") {
+            current_keys.ja.iv = env_iv;
+        }
 
-        if let Ok(env_key) = std::env::var("BCC_KEY_EN") { current_keys.en.key = env_key; }
-        if let Ok(env_iv) = std::env::var("BCC_IV_EN") { current_keys.en.iv = env_iv; }
+        if let Ok(env_key) = std::env::var("BCC_KEY_EN") {
+            current_keys.en.key = env_key;
+        }
+        if let Ok(env_iv) = std::env::var("BCC_IV_EN") {
+            current_keys.en.iv = env_iv;
+        }
 
-        if let Ok(env_key) = std::env::var("BCC_KEY_TW") { current_keys.tw.key = env_key; }
-        if let Ok(env_iv) = std::env::var("BCC_IV_TW") { current_keys.tw.iv = env_iv; }
+        if let Ok(env_key) = std::env::var("BCC_KEY_TW") {
+            current_keys.tw.key = env_key;
+        }
+        if let Ok(env_iv) = std::env::var("BCC_IV_TW") {
+            current_keys.tw.iv = env_iv;
+        }
 
-        if let Ok(env_key) = std::env::var("BCC_KEY_KR") { current_keys.ko.key = env_key; }
-        if let Ok(env_iv) = std::env::var("BCC_IV_KR") { current_keys.ko.iv = env_iv; }
+        if let Ok(env_key) = std::env::var("BCC_KEY_KR") {
+            current_keys.ko.key = env_key;
+        }
+        if let Ok(env_iv) = std::env::var("BCC_IV_KR") {
+            current_keys.ko.iv = env_iv;
+        }
 
         current_keys
     }
@@ -78,7 +94,8 @@ impl UserKeys {
         if !show_ui {
             info!(
                 msg = "Environment variable configuration requirements",
-                required_vars = "BCC_KEY_JP, BCC_IV_JP, BCC_KEY_EN, BCC_IV_EN, BCC_KEY_TW, BCC_IV_TW, BCC_KEY_KR, BCC_IV_KR"
+                required_vars =
+                    "BCC_KEY_JP, BCC_IV_JP, BCC_KEY_EN, BCC_IV_EN, BCC_KEY_TW, BCC_IV_TW, BCC_KEY_KR, BCC_IV_KR"
             );
             return;
         }
@@ -88,22 +105,55 @@ impl UserKeys {
         println!("=================================================================================");
         println!("To bypass 'keys.json', export the following hexadecimal keys into your system:\n");
 
-        println!("  {:<15} : Hex-encoded decryption key for the Japanese region", "BCC_KEY_JP".cyan().bold());
-        println!("  {:<15} : 16-byte initialization vector for the Japanese region", "BCC_IV_JP".cyan().bold());
+        println!(
+            "  {:<15} : Hex-encoded decryption key for the Japanese region",
+            "BCC_KEY_JP".cyan().bold()
+        );
+        println!(
+            "  {:<15} : 16-byte initialization vector for the Japanese region",
+            "BCC_IV_JP".cyan().bold()
+        );
         println!("---------------------------------------------------------------------------------");
-        println!("  {:<15} : Hex-encoded decryption key for the English region", "BCC_KEY_EN".cyan().bold());
-        println!("  {:<15} : 16-byte initialization vector for the English region", "BCC_IV_EN".cyan().bold());
+        println!(
+            "  {:<15} : Hex-encoded decryption key for the English region",
+            "BCC_KEY_EN".cyan().bold()
+        );
+        println!(
+            "  {:<15} : 16-byte initialization vector for the English region",
+            "BCC_IV_EN".cyan().bold()
+        );
         println!("---------------------------------------------------------------------------------");
-        println!("  {:<15} : Hex-encoded decryption key for the Taiwanese region", "BCC_KEY_TW".cyan().bold());
-        println!("  {:<15} : 16-byte initialization vector for the Taiwanese region", "BCC_IV_TW".cyan().bold());
+        println!(
+            "  {:<15} : Hex-encoded decryption key for the Taiwanese region",
+            "BCC_KEY_TW".cyan().bold()
+        );
+        println!(
+            "  {:<15} : 16-byte initialization vector for the Taiwanese region",
+            "BCC_IV_TW".cyan().bold()
+        );
         println!("---------------------------------------------------------------------------------");
-        println!("  {:<15} : Hex-encoded decryption key for the Korean region", "BCC_KEY_KR".cyan().bold());
-        println!("  {:<15} : 16-byte initialization vector for the Korean region", "BCC_IV_KR".cyan().bold());
+        println!(
+            "  {:<15} : Hex-encoded decryption key for the Korean region",
+            "BCC_KEY_KR".cyan().bold()
+        );
+        println!(
+            "  {:<15} : 16-byte initialization vector for the Korean region",
+            "BCC_IV_KR".cyan().bold()
+        );
         println!("=================================================================================");
 
-        println!("\n{}: Example configuration inside a bash script or ecosystem file:", "TIP".green().bold());
-        println!("{}", "  export BCC_KEY_EN=\"0123456789abcdef0123456789abcdef\"".bright_black());
-        println!("{}", "  export BCC_IV_EN=\"abcdef0123456789abcdef0123456789\"".bright_black());
+        println!(
+            "\n{}: Example configuration inside a bash script or ecosystem file:",
+            "TIP".green().bold()
+        );
+        println!(
+            "{}",
+            "  export BCC_KEY_EN=\"0123456789abcdef0123456789abcdef\"".bright_black()
+        );
+        println!(
+            "{}",
+            "  export BCC_IV_EN=\"abcdef0123456789abcdef0123456789\"".bright_black()
+        );
         println!();
     }
 
@@ -118,28 +168,44 @@ impl UserKeys {
         println!("Paste your Hex keys and IVs below. Leave blank to skip a field.\n");
 
         let input_ja_key = prompt_for_field("Enter JP Key: ");
-        if !input_ja_key.is_empty() { updated_keys.ja.key = input_ja_key; }
+        if !input_ja_key.is_empty() {
+            updated_keys.ja.key = input_ja_key;
+        }
 
         let input_ja_iv = prompt_for_field("Enter JP IV : ");
-        if !input_ja_iv.is_empty() { updated_keys.ja.iv = input_ja_iv; }
+        if !input_ja_iv.is_empty() {
+            updated_keys.ja.iv = input_ja_iv;
+        }
 
         let input_en_key = prompt_for_field("Enter EN Key: ");
-        if !input_en_key.is_empty() { updated_keys.en.key = input_en_key; }
+        if !input_en_key.is_empty() {
+            updated_keys.en.key = input_en_key;
+        }
 
         let input_en_iv = prompt_for_field("Enter EN IV : ");
-        if !input_en_iv.is_empty() { updated_keys.en.iv = input_en_iv; }
+        if !input_en_iv.is_empty() {
+            updated_keys.en.iv = input_en_iv;
+        }
 
         let input_tw_key = prompt_for_field("Enter TW Key: ");
-        if !input_tw_key.is_empty() { updated_keys.tw.key = input_tw_key; }
+        if !input_tw_key.is_empty() {
+            updated_keys.tw.key = input_tw_key;
+        }
 
         let input_tw_iv = prompt_for_field("Enter TW IV : ");
-        if !input_tw_iv.is_empty() { updated_keys.tw.iv = input_tw_iv; }
+        if !input_tw_iv.is_empty() {
+            updated_keys.tw.iv = input_tw_iv;
+        }
 
         let input_ko_key = prompt_for_field("Enter KR Key: ");
-        if !input_ko_key.is_empty() { updated_keys.ko.key = input_ko_key; }
+        if !input_ko_key.is_empty() {
+            updated_keys.ko.key = input_ko_key;
+        }
 
         let input_ko_iv = prompt_for_field("Enter KR IV : ");
-        if !input_ko_iv.is_empty() { updated_keys.ko.iv = input_ko_iv; }
+        if !input_ko_iv.is_empty() {
+            updated_keys.ko.iv = input_ko_iv;
+        }
 
         updated_keys.save();
         println!("\nSUCCESS: Configuration saved to neighboring 'keys.json' file.\n");
@@ -148,10 +214,22 @@ impl UserKeys {
 
     pub fn validate(&self) -> [(bool, bool); 4] {
         [
-            (validate_hash(&self.ja.key, EXPECTED_HASHES[0].0), validate_hash(&self.ja.iv, EXPECTED_HASHES[0].1)),
-            (validate_hash(&self.en.key, EXPECTED_HASHES[1].0), validate_hash(&self.en.iv, EXPECTED_HASHES[1].1)),
-            (validate_hash(&self.tw.key, EXPECTED_HASHES[2].0), validate_hash(&self.tw.iv, EXPECTED_HASHES[2].1)),
-            (validate_hash(&self.ko.key, EXPECTED_HASHES[3].0), validate_hash(&self.ko.iv, EXPECTED_HASHES[3].1)),
+            (
+                validate_hash(&self.ja.key, EXPECTED_HASHES[0].0),
+                validate_hash(&self.ja.iv, EXPECTED_HASHES[0].1),
+            ),
+            (
+                validate_hash(&self.en.key, EXPECTED_HASHES[1].0),
+                validate_hash(&self.en.iv, EXPECTED_HASHES[1].1),
+            ),
+            (
+                validate_hash(&self.tw.key, EXPECTED_HASHES[2].0),
+                validate_hash(&self.tw.iv, EXPECTED_HASHES[2].1),
+            ),
+            (
+                validate_hash(&self.ko.key, EXPECTED_HASHES[3].0),
+                validate_hash(&self.ko.iv, EXPECTED_HASHES[3].1),
+            ),
         ]
     }
 

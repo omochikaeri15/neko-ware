@@ -1,8 +1,8 @@
 use crate::io::{load_local, save_local};
-use serde::{Deserialize, Serialize};
-use std::io::{stdin, stdout, Write};
 use colored::Colorize;
-use tracing::{info, error};
+use serde::{Deserialize, Serialize};
+use std::io::{Write, stdin, stdout};
+use tracing::{error, info};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AppConfig {
@@ -46,7 +46,13 @@ impl AppConfig {
     pub fn reset(show_ui: bool) {
         let fresh_config = Self::default();
         fresh_config.save();
-        if show_ui { println!("\n  {} {} has been reset to defaults.\n", "✓".green(), "config.json".cyan()); }
+        if show_ui {
+            println!(
+                "\n  {} {} has been reset to defaults.\n",
+                "✓".green(),
+                "config.json".cyan()
+            );
+        }
         info!("Config reset to defaults");
     }
 
@@ -60,11 +66,14 @@ impl AppConfig {
         println!("\n--- BCC-APK Configuration Wizard ---");
 
         let user_name_input = request_user_input("Enter App Name: ");
-        if !user_name_input.is_empty() { active_config.app_name = user_name_input; }
+        if !user_name_input.is_empty() {
+            active_config.app_name = user_name_input;
+        }
 
         let user_package_input = request_user_input("Enter Package Suffix: ");
         if !user_package_input.is_empty() {
-            let sanitized_package: String = user_package_input.chars()
+            let sanitized_package: String = user_package_input
+                .chars()
                 .filter(|character| !character.is_whitespace())
                 .collect();
             active_config.package_suffix = sanitized_package.to_lowercase();
@@ -84,16 +93,24 @@ impl AppConfig {
         }
 
         let patch_input = request_user_input("\nEnter Patch Directory: ");
-        if !patch_input.is_empty() { active_config.patch_dir = patch_input; }
+        if !patch_input.is_empty() {
+            active_config.patch_dir = patch_input;
+        }
 
         let loose_input = request_user_input("Enter Loose Directory: ");
-        if !loose_input.is_empty() { active_config.loose_dir = loose_input; }
+        if !loose_input.is_empty() {
+            active_config.loose_dir = loose_input;
+        }
 
         let icons_input = request_user_input("Enter Icons Directory: ");
-        if !icons_input.is_empty() { active_config.icons_dir = icons_input; }
+        if !icons_input.is_empty() {
+            active_config.icons_dir = icons_input;
+        }
 
         let output_input = request_user_input("Enter Output Directory: ");
-        if !output_input.is_empty() { active_config.output_dir = output_input; }
+        if !output_input.is_empty() {
+            active_config.output_dir = output_input;
+        }
 
         let pem_input = request_user_input("Enter custom PEM identity file: ");
         if !pem_input.is_empty() {

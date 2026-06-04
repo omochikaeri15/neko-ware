@@ -1,14 +1,14 @@
+mod decrypt;
 mod io;
 mod keys;
 mod scanner;
-mod decrypt;
 pub mod workspace;
 
 use clap::{CommandFactory, Parser, Subcommand};
+use colored::Colorize;
 use keys::UserKeys;
 use std::process::Command as ProcessCommand;
-use colored::Colorize;
-use tracing::{error, Level};
+use tracing::{Level, error};
 use tracing_subscriber::fmt;
 
 #[derive(Parser)]
@@ -97,7 +97,10 @@ fn main() {
                 error!("Failed to initialize workspace: {}", err);
             } else {
                 if show_ui {
-                    println!("\n  {} Workspace initialized! Created empty keys.json and decrypted directory\n", "✓".green());
+                    println!(
+                        "\n  {} Workspace initialized! Created empty keys.json and decrypted directory\n",
+                        "✓".green()
+                    );
                 }
             }
         }

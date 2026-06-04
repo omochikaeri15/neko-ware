@@ -1,7 +1,7 @@
-use std::fs;
+use crate::config::AppConfig;
 use crate::io::get_local_dir;
 use crate::keys::UserKeys;
-use crate::config::AppConfig;
+use std::fs;
 use tracing::debug;
 
 const README_CONTENT: &[u8] = include_bytes!("../DEFAULT.md");
@@ -28,12 +28,7 @@ pub fn init(_show_ui: bool) -> std::io::Result<()> {
         let _removal_result = fs::remove_dir_all(&mod_directory);
     }
 
-    let required_folder_names = vec![
-        "mod/loose",
-        "mod/patch",
-        "mod/icons",
-        "apk",
-    ];
+    let required_folder_names = vec!["mod/loose", "mod/patch", "mod/icons", "apk"];
 
     debug!("Creating fresh workspace directories.");
     for target_folder in required_folder_names {

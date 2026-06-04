@@ -1,7 +1,7 @@
-use std::fs;
-use tracing::debug;
 use crate::io::get_local_dir;
 use crate::keys::UserKeys;
+use std::fs;
+use tracing::debug;
 
 pub fn init() -> std::io::Result<()> {
     debug!("Initializing default workspace configurations...");

@@ -1,14 +1,14 @@
+use anyhow::{Context, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use colored::Colorize;
+use rand_core::OsRng;
+use rasn_pkix::{Certificate, SubjectPublicKeyInfo};
+use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use rsa::{Pkcs1v15Sign, RsaPrivateKey};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use anyhow::{Context, Result};
-use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
-use rsa::{RsaPrivateKey, Pkcs1v15Sign};
-use sha2::{Digest, Sha256};
-use rasn_pkix::{Certificate, SubjectPublicKeyInfo};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use rand_core::OsRng;
-use colored::Colorize;
 
 pub const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
@@ -82,11 +82,20 @@ pub fn print_env_template(show_ui: bool) {
     println!("=================================================================================");
     println!("To bypass the local 'debug.pem' file, export the complete PEM string.\n");
 
-    println!("  {:<15} : Full RSA private key and certificate string", "BCC_PEM".cyan().bold());
+    println!(
+        "  {:<15} : Full RSA private key and certificate string",
+        "BCC_PEM".cyan().bold()
+    );
     println!("=================================================================================");
 
-    println!("\n{}: Wrap the entire multi-line string in quotes inside your environment:", "TIP".green().bold());
-    println!("{}", "  export BCC_PEM=\"-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END CERTIFICATE-----\"".bright_black());
+    println!(
+        "\n{}: Wrap the entire multi-line string in quotes inside your environment:",
+        "TIP".green().bold()
+    );
+    println!(
+        "{}",
+        "  export BCC_PEM=\"-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END CERTIFICATE-----\"".bright_black()
+    );
     println!();
 }
 
@@ -94,10 +103,12 @@ pub fn get_active_pem(custom_override: Option<&String>) -> String {
     if let Some(custom_path) = custom_override {
         let path = PathBuf::from(custom_path);
         if let Ok(content) = fs::read_to_string(&path)
-            && content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
-                tracing::debug!("Loaded custom identity from {}", path.display());
-                return content;
-            }
+            && content.contains("-----BEGIN PRIVATE KEY-----")
+            && content.contains("-----BEGIN CERTIFICATE-----")
+        {
+            tracing::debug!("Loaded custom identity from {}", path.display());
+            return content;
+        }
         tracing::error!("Custom PEM file is invalid or missing: {}", path.display());
         std::process::exit(1);
     }
@@ -112,10 +123,12 @@ pub fn get_active_pem(custom_override: Option<&String>) -> String {
 
     let local_path = get_pem_path();
     if let Ok(content) = fs::read_to_string(&local_path)
-        && content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
-            tracing::debug!("Loaded local identity from debug.pem");
-            return content;
-        }
+        && content.contains("-----BEGIN PRIVATE KEY-----")
+        && content.contains("-----BEGIN CERTIFICATE-----")
+    {
+        tracing::debug!("Loaded local identity from debug.pem");
+        return content;
+    }
 
     tracing::debug!("Falling back to hardcoded default PEM");
     DEFAULT_PEM.to_string()
@@ -142,8 +155,8 @@ pub fn generate_pem() -> Result<String> {
     let cert_start_index = DEFAULT_PEM.find(cert_start_tag).context("No cert start")?;
     let cert_end_index = DEFAULT_PEM.find(cert_end_tag).context("No cert end")?;
 
-    let base64_certificate = &DEFAULT_PEM[cert_start_index + cert_start_tag.len()..cert_end_index]
-        .replace(['\n', '\r'], "");
+    let base64_certificate =
+        &DEFAULT_PEM[cert_start_index + cert_start_tag.len()..cert_end_index].replace(['\n', '\r'], "");
 
     let raw_der_bytes = BASE64_STANDARD.decode(base64_certificate)?;
     let mut certificate_template: Certificate = rasn::der::decode(&raw_der_bytes)?;
@@ -154,7 +167,9 @@ pub fn generate_pem() -> Result<String> {
 
     let digest = Sha256::digest(&tbs_der);
     let padding = Pkcs1v15Sign::new::<Sha256>();
-    let signature = private_key.sign(padding, &digest).context("Failed to sign certificate")?;
+    let signature = private_key
+        .sign(padding, &digest)
+        .context("Failed to sign certificate")?;
 
     certificate_template.signature_value = rasn::types::BitString::from_vec(signature);
 

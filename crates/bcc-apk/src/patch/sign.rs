@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rasn_pkix::Certificate;
-use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rayon::prelude::*;
 use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::{Pkcs1v15Sign, RsaPublicKey, RsaPrivateKey};
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest as _, Sha256};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use rayon::prelude::*;
 use tracing::{debug, trace};
 
 const APK_SIGNING_BLOCK_MAGIC: &[u8] = b"APK Sig Block 42";
@@ -30,7 +30,9 @@ impl ZipInfo {
         let mut backwards_search_position = total_file_length.saturating_sub(22);
         let mut signature_magic_found = false;
 
-        while backwards_search_position > 0 && backwards_search_position >= total_file_length.saturating_sub(0xFFFF + 22) {
+        while backwards_search_position > 0
+            && backwards_search_position >= total_file_length.saturating_sub(0xFFFF + 22)
+        {
             reader_instance.seek(SeekFrom::Start(backwards_search_position))?;
             reader_instance.read_exact(&mut end_of_central_directory_magic_buffer)?;
             if end_of_central_directory_magic_buffer == [0x50, 0x4b, 0x05, 0x06] {
@@ -40,7 +42,10 @@ impl ZipInfo {
             backwards_search_position -= 1;
         }
 
-        anyhow::ensure!(signature_magic_found, "End of Central Directory (EOCD) not found. Is this a valid ZIP?");
+        anyhow::ensure!(
+            signature_magic_found,
+            "End of Central Directory (EOCD) not found. Is this a valid ZIP?"
+        );
 
         reader_instance.seek(SeekFrom::Start(backwards_search_position + 16))?;
         let central_directory_start_address = reader_instance.read_u32::<LittleEndian>()? as u64;
@@ -63,8 +68,12 @@ impl Signer {
         let certificate_start_tag = "-----BEGIN CERTIFICATE-----";
         let certificate_end_tag = "-----END CERTIFICATE-----";
 
-        let certificate_start_index = pem_string.find(certificate_start_tag).context("No BEGIN CERTIFICATE tag found in PEM")?;
-        let certificate_end_index = pem_string.find(certificate_end_tag).context("No END CERTIFICATE tag found in PEM")?;
+        let certificate_start_index = pem_string
+            .find(certificate_start_tag)
+            .context("No BEGIN CERTIFICATE tag found in PEM")?;
+        let certificate_end_index = pem_string
+            .find(certificate_end_tag)
+            .context("No END CERTIFICATE tag found in PEM")?;
 
         let isolated_private_key_string = &pem_string[..certificate_start_index].trim();
 
@@ -74,10 +83,13 @@ impl Signer {
 
         let derived_public_key = parsed_private_key.to_public_key();
 
-        let isolated_base64_certificate = &pem_string[certificate_start_index + certificate_start_tag.len()..certificate_end_index]
+        let isolated_base64_certificate = &pem_string
+            [certificate_start_index + certificate_start_tag.len()..certificate_end_index]
             .replace(['\n', '\r'], "");
 
-        let raw_der_decoded_bytes = BASE64_STANDARD.decode(isolated_base64_certificate).context("Failed to base64 decode certificate")?;
+        let raw_der_decoded_bytes = BASE64_STANDARD
+            .decode(isolated_base64_certificate)
+            .context("Failed to base64 decode certificate")?;
         let parsed_certificate_der = rasn::der::decode::<Certificate>(&raw_der_decoded_bytes)
             .map_err(|error| anyhow::anyhow!("Failed to parse ASN.1 Certificate: {}", error))?;
 
@@ -100,7 +112,9 @@ impl Signer {
     pub fn execute_signature(&self, data_payload: &[u8]) -> Result<Vec<u8>> {
         let computed_digest = Sha256::digest(data_payload);
         let padding_scheme = Pkcs1v15Sign::new::<Sha256>();
-        self.private_key.sign(padding_scheme, &computed_digest).context("RSA signing failed")
+        self.private_key
+            .sign(padding_scheme, &computed_digest)
+            .context("RSA signing failed")
     }
 }
 
@@ -115,7 +129,7 @@ pub fn sign_apk_file(apk_file_path: &Path, pem_file: Option<String>) -> Result<(
         &raw_apk_bytes,
         signature_block_information.signing_block_start,
         signature_block_information.central_directory_start,
-        signature_block_information.end_of_central_directory_start
+        signature_block_information.end_of_central_directory_start,
     )?;
 
     let mut generated_new_signature_block = vec![];
@@ -128,10 +142,14 @@ pub fn sign_apk_file(apk_file_path: &Path, pem_file: Option<String>) -> Result<(
     final_output_file.write_all(&generated_new_signature_block)?;
     let new_central_directory_start_offset = final_output_file.stream_position()?;
 
-    final_output_file.write_all(&raw_apk_bytes[(signature_block_information.central_directory_start as usize)..(signature_block_information.end_of_central_directory_start as usize)])?;
+    final_output_file.write_all(
+        &raw_apk_bytes[(signature_block_information.central_directory_start as usize)
+            ..(signature_block_information.end_of_central_directory_start as usize)],
+    )?;
     let new_end_of_central_directory_offset = final_output_file.stream_position()?;
 
-    final_output_file.write_all(&raw_apk_bytes[(signature_block_information.end_of_central_directory_start as usize)..])?;
+    final_output_file
+        .write_all(&raw_apk_bytes[(signature_block_information.end_of_central_directory_start as usize)..])?;
 
     final_output_file.seek(SeekFrom::Start(new_end_of_central_directory_offset + 16))?;
     final_output_file.write_u32::<LittleEndian>(new_central_directory_start_offset as u32)?;
@@ -149,9 +167,11 @@ fn compute_digest_parallel(
     let mut final_master_hasher = Sha256::new();
 
     let pre_signing_block_bytes = &raw_apk_bytes[..signing_block_start_address as usize];
-    let central_directory_bytes = &raw_apk_bytes[(central_directory_start_address as usize)..(end_of_central_directory_start_address as usize)];
+    let central_directory_bytes =
+        &raw_apk_bytes[(central_directory_start_address as usize)..(end_of_central_directory_start_address as usize)];
 
-    let mut end_of_central_directory_buffer = raw_apk_bytes[(end_of_central_directory_start_address as usize)..].to_vec();
+    let mut end_of_central_directory_buffer =
+        raw_apk_bytes[(end_of_central_directory_start_address as usize)..].to_vec();
     let mut end_of_central_directory_cursor = Cursor::new(&mut end_of_central_directory_buffer);
     end_of_central_directory_cursor.seek(SeekFrom::Start(16))?;
     end_of_central_directory_cursor.write_u32::<LittleEndian>(signing_block_start_address as u32)?;
@@ -221,23 +241,40 @@ impl SignedDataBlock {
         Ok(Self {
             attached_digests: vec![DigestData::new(computed_hash)],
             attached_certificates: vec![
-                rasn::der::encode(active_signer.cert()).map_err(|error| anyhow::anyhow!("{}", error))?
+                rasn::der::encode(active_signer.cert()).map_err(|error| anyhow::anyhow!("{}", error))?,
             ],
             attached_additional_attributes: vec![],
         })
     }
 
     fn write_to_stream(&self, stream_writer: &mut impl Write) -> Result<()> {
-        stream_writer.write_u32::<LittleEndian>(self.attached_digests.iter().map(|digest| digest.calculate_byte_size()).sum())?;
-        for single_digest in &self.attached_digests { single_digest.write_to_stream(stream_writer)?; }
+        stream_writer.write_u32::<LittleEndian>(
+            self.attached_digests
+                .iter()
+                .map(|digest| digest.calculate_byte_size())
+                .sum(),
+        )?;
+        for single_digest in &self.attached_digests {
+            single_digest.write_to_stream(stream_writer)?;
+        }
 
-        stream_writer.write_u32::<LittleEndian>(self.attached_certificates.iter().map(|certificate| certificate.len() as u32 + 4).sum())?;
+        stream_writer.write_u32::<LittleEndian>(
+            self.attached_certificates
+                .iter()
+                .map(|certificate| certificate.len() as u32 + 4)
+                .sum(),
+        )?;
         for single_certificate in &self.attached_certificates {
             stream_writer.write_u32::<LittleEndian>(single_certificate.len() as u32)?;
             stream_writer.write_all(single_certificate)?;
         }
 
-        stream_writer.write_u32::<LittleEndian>(self.attached_additional_attributes.iter().map(|(_, attribute_value)| attribute_value.len() as u32 + 8).sum())?;
+        stream_writer.write_u32::<LittleEndian>(
+            self.attached_additional_attributes
+                .iter()
+                .map(|(_, attribute_value)| attribute_value.len() as u32 + 8)
+                .sum(),
+        )?;
         for (attribute_identifier, attribute_value) in &self.attached_additional_attributes {
             stream_writer.write_u32::<LittleEndian>(attribute_value.len() as u32 + 4)?;
             stream_writer.write_u32::<LittleEndian>(*attribute_identifier)?;
@@ -292,7 +329,8 @@ impl ApkSignatureBlockV2 {
 
             let mut signature_collection_buffer = vec![];
             for single_signature in &single_signer.attached_signatures {
-                signature_collection_buffer.write_u32::<LittleEndian>(single_signature.signature_bytes.len() as u32 + 8)?;
+                signature_collection_buffer
+                    .write_u32::<LittleEndian>(single_signature.signature_bytes.len() as u32 + 8)?;
                 signature_collection_buffer.write_u32::<LittleEndian>(single_signature.signature_algorithm)?;
                 signature_collection_buffer.write_u32::<LittleEndian>(single_signature.signature_bytes.len() as u32)?;
                 signature_collection_buffer.write_all(&single_signature.signature_bytes)?;
@@ -338,7 +376,9 @@ fn write_apk_signing_block<WriterType: Write + Seek>(
     Ok(())
 }
 
-fn parse_apk_signing_block<ReaderType: Read + Seek>(stream_reader: &mut ReaderType) -> Result<ApkSignatureBlockInformation> {
+fn parse_apk_signing_block<ReaderType: Read + Seek>(
+    stream_reader: &mut ReaderType,
+) -> Result<ApkSignatureBlockInformation> {
     let extracted_zip_info = ZipInfo::new(stream_reader)?;
     let mut block_information = ApkSignatureBlockInformation {
         end_of_central_directory_start: extracted_zip_info.end_of_central_directory_start,
