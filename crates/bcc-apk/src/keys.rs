@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use crate::io::{load_local, save_local};
 use std::io::{stdin, stdout, Write};
+use colored::{Colorize, ColoredString};
+use tracing::{info, error};
 
 pub const EXPECTED_HASHES: [(&str, &str); 4] = [
     ("bac299d3cf278544782427ff7c71ef58", "6910fae125547fd957a505c67e1c72bd"),
@@ -54,7 +56,12 @@ impl UserKeys {
         save_local("keys.json", self);
     }
 
-    pub fn print_status(&self) {
+    pub fn print_status(&self, show_ui: bool) {
+        if !show_ui {
+            info!(keys = ?self, "Current user decryption keys");
+            return;
+        }
+
         let validation_results = self.validate();
 
         println!("=================================================================================");
@@ -69,7 +76,45 @@ impl UserKeys {
         println!("=================================================================================");
     }
 
-    pub fn prompt_interactive_load() -> Self {
+    pub fn print_env_template(show_ui: bool) {
+        if !show_ui {
+            info!(
+                msg = "Environment variable configuration requirements",
+                required_vars = "BCC_KEY_JP, BCC_IV_JP, BCC_KEY_EN, BCC_IV_EN, BCC_KEY_TW, BCC_IV_TW, BCC_KEY_KR, BCC_IV_KR"
+            );
+            return;
+        }
+
+        println!("\n=================================================================================");
+        println!("                   BCC HEADLESS ENVIRONMENT VARIABLES                            ");
+        println!("=================================================================================");
+        println!("To bypass 'keys.json', export the following hexadecimal keys into your system:\n");
+
+        println!("  {:<15} : Hex-encoded decryption key for the Japanese region", "BCC_KEY_JP".cyan().bold());
+        println!("  {:<15} : 16-byte initialization vector for the Japanese region", "BCC_IV_JP".cyan().bold());
+        println!("---------------------------------------------------------------------------------");
+        println!("  {:<15} : Hex-encoded decryption key for the English region", "BCC_KEY_EN".cyan().bold());
+        println!("  {:<15} : 16-byte initialization vector for the English region", "BCC_IV_EN".cyan().bold());
+        println!("---------------------------------------------------------------------------------");
+        println!("  {:<15} : Hex-encoded decryption key for the Taiwanese region", "BCC_KEY_TW".cyan().bold());
+        println!("  {:<15} : 16-byte initialization vector for the Taiwanese region", "BCC_IV_TW".cyan().bold());
+        println!("---------------------------------------------------------------------------------");
+        println!("  {:<15} : Hex-encoded decryption key for the Korean region", "BCC_KEY_KR".cyan().bold());
+        println!("  {:<15} : 16-byte initialization vector for the Korean region", "BCC_IV_KR".cyan().bold());
+        println!("=================================================================================");
+
+        println!("\n{}: Example configuration inside a bash script or ecosystem file:", "TIP".green().bold());
+        println!("{}", "  export BCC_KEY_EN=\"0123456789abcdef0123456789abcdef\"".bright_black());
+        println!("{}", "  export BCC_IV_EN=\"abcdef0123456789abcdef0123456789\"".bright_black());
+        println!();
+    }
+
+    pub fn prompt_interactive_load(show_ui: bool) -> Self {
+        if !show_ui {
+            error!("Interactive key loading requires standard UI mode.");
+            std::process::exit(1);
+        }
+
         let mut updated_keys = Self::load();
         println!("\n--- BCC Key Configuration Wizard ---");
         println!("Paste your Hex keys and IVs below. Leave blank to skip a field.\n");
@@ -122,10 +167,10 @@ impl UserKeys {
         };
 
         if !validate_hash(&region_key.key, expected_hash.0) {
-            return Err(format!("{} Region Key is invalid or missing.", target_region));
+            return Err(format!("{} Region Key is invalid or missing", target_region));
         }
         if !validate_hash(&region_key.iv, expected_hash.1) {
-            return Err(format!("{} Region IV is invalid or missing.", target_region));
+            return Err(format!("{} Region IV is invalid or missing", target_region));
         }
 
         Ok(region_key)
@@ -138,14 +183,15 @@ fn print_region_row(region_name: &str, key_value: &str, iv_value: &str, is_valid
     println!("{:<6} | {} | {}", region_name, formatted_key, formatted_iv);
 }
 
-fn format_table_cell(cell_value: &str, is_valid: bool) -> String {
+fn format_table_cell(cell_value: &str, is_valid: bool) -> ColoredString {
     let quoted_string = format!("\"{}\"", cell_value);
     let padded_string = format!("{:<34}", quoted_string);
 
     if is_valid {
-        return format!("\x1b[32m{}\x1b[0m", padded_string);
+        padded_string.green()
+    } else {
+        padded_string.red()
     }
-    format!("\x1b[31m{}\x1b[0m", padded_string)
 }
 
 fn prompt_for_field(label_message: &str) -> String {

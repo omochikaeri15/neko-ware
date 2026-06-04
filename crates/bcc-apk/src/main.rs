@@ -10,10 +10,19 @@ use config::AppConfig;
 use keys::UserKeys;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
+use colored::Colorize;
+use tracing::Level;
+use tracing_subscriber::fmt;
 
 #[derive(Parser)]
 #[command(name = "bcc-apk", version, about = "BCC Standalone APK Patcher", long_about = None)]
 struct Cli {
+    #[arg(short, long, global = true, help = "Enable verbose debug logging")]
+    verbose: bool,
+    #[arg(short = 't', long, global = true, help = "Enable maximum trace-level logging")]
+    trace: bool,
+    #[arg(short, long, global = true, help = "Output logs in structured JSON format")]
+    json: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -66,15 +75,17 @@ enum Commands {
 enum KeysAction {
     #[command(about = "Print current keys and validate them")]
     Print,
-    #[command(about = "Initialize the \x1b[36mkeys.json\x1b[0m creation wizard")]
+    #[command(about = "Initialize the keys.json creation wizard")]
     Load,
+    #[command(about = "Show required environment variables for headless configuration")]
+    Env,
 }
 
 #[derive(Subcommand)]
 enum ConfigAction {
-    #[command(about = "Reset \x1b[36mconfig.json\x1b[0m to factory defaults")]
+    #[command(about = "Reset config.json to factory defaults")]
     Reset,
-    #[command(about = "Interactive configuration wizard for \x1b[36mconfig.json\x1b[0m")]
+    #[command(about = "Interactive configuration wizard for config.json")]
     Create,
 }
 
@@ -82,34 +93,80 @@ enum ConfigAction {
 enum PemAction {
     #[command(about = "Generate a new custom debug.pem identity file")]
     Generate,
+    #[command(about = "Show required environment variables for headless configuration")]
+    Env,
 }
 
 fn main() {
-    let cli_arguments = Cli::parse();
+    let cli = Cli::parse();
+    let show_ui = !cli.json && !cli.verbose && !cli.trace;
 
-    match cli_arguments.command {
-        Some(Commands::Init) => handle_init_command(),
-        Some(Commands::Pem { action }) => handle_pem_command(action),
-        Some(Commands::Keys { action }) => handle_keys_command(action),
-        Some(Commands::Config { action }) => handle_config_command(action),
+    if cli.json {
+        colored::control::set_override(false);
+        let max_level = if cli.trace {
+            Level::TRACE
+        } else if cli.verbose {
+            Level::DEBUG
+        } else {
+            Level::INFO
+        };
+        fmt()
+            .json()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(max_level)
+            .init();
+    } else if cli.trace {
+        fmt()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(Level::TRACE)
+            .init();
+    } else if cli.verbose {
+        fmt()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(Level::DEBUG)
+            .init();
+    }
+
+    match cli.command {
+        Some(Commands::Init) => handle_init_command(show_ui),
+        Some(Commands::Pem { action }) => handle_pem_command(action, show_ui),
+        Some(Commands::Keys { action }) => handle_keys_command(action, show_ui),
+        Some(Commands::Config { action }) => handle_config_command(action, show_ui),
         Some(Commands::Patch { apk_path, patch_dir, icons_dir, loose_dir, output_dir, app_name, package_suffix, region, force_action, pem_file }) => {
-            handle_patch_command(apk_path, patch_dir, icons_dir, loose_dir, output_dir, app_name, package_suffix, region, force_action, pem_file)
+            handle_patch_command(apk_path, patch_dir, icons_dir, loose_dir, output_dir, app_name, package_suffix, region, force_action, pem_file, show_ui)
         }
         None => handle_fallback_shell(),
     }
 }
 
-fn handle_pem_command(action_type: PemAction) {
+fn handle_pem_command(action_type: PemAction, show_ui: bool) {
     match action_type {
         PemAction::Generate => {
-            println!("\n  \x1b[33m!\x1b[0m Generating new RSA-2048 Identity");
+            if show_ui { println!("\n  {} Generating new RSA-2048 Identity", "!".yellow()); }
+            tracing::info!("Generating new RSA-2048 Identity");
+
             match pem::generate_pem() {
                 Ok(new_pem) => match pem::save_pem(&new_pem) {
-                    Ok(_) => println!("  \x1b[32m✓\x1b[0m Successfully created and saved \x1b[36mdebug.pem\x1b[0m!\n"),
-                    Err(e) => println!("  \x1b[31m✗\x1b[0m Failed to save PEM: {}\n", e),
+                    Ok(_) => {
+                        if show_ui { println!("  {} Successfully created and saved {}!\n", "✓".green(), "debug.pem".cyan()); }
+                        tracing::info!("Successfully created and saved debug.pem");
+                    },
+                    Err(e) => {
+                        if show_ui { println!("  {} Failed to save PEM: {}\n", "✗".red(), e); }
+                        tracing::error!(error = %e, "Failed to save PEM");
+                    },
                 },
-                Err(e) => println!("  \x1b[31m✗\x1b[0m Failed to generate PEM: {}\n", e),
+                Err(e) => {
+                    if show_ui { println!("  {} Failed to generate PEM: {}\n", "✗".red(), e); }
+                    tracing::error!(error = %e, "Failed to generate PEM");
+                },
             }
+        },
+        PemAction::Env => {
+            pem::print_env_template(show_ui);
         }
     }
 }
@@ -125,6 +182,7 @@ fn handle_patch_command(
     override_region: Option<String>,
     override_force: Option<String>,
     override_pem: Option<String>,
+    show_ui: bool,
 ) {
     let base_config = AppConfig::load();
 
@@ -149,21 +207,24 @@ fn handle_patch_command(
 
     let valid_regions = ["JP", "EN", "TW", "KR"];
     if !valid_regions.contains(&final_region.as_str()) {
-        println!("\n\x1b[31m  ✗ Invalid Region: '{}'. Must be JP, EN, TW, or KR.\x1b[0m\n", final_region);
+        if show_ui { println!("\n  {} Invalid Region: '{}'. Must be JP, EN, TW, or KR.\n", "✗".red(), final_region.cyan()); }
+        tracing::error!(region = %final_region, "Invalid region provided");
         return;
     }
 
     let final_force_action = override_force.map(|action_string| action_string.to_lowercase());
     if let Some(ref selected_action) = final_force_action {
         if !["update", "u", "create", "c"].contains(&selected_action.as_str()) {
-            println!("\n\x1b[31m  ✗ Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c)\x1b[0m\n", selected_action);
+            if show_ui { println!("\n  {} Invalid Force Flag: '{}'. Must be 'update' (u) or 'create' (c)\n", "✗".red(), selected_action.cyan()); }
+            tracing::error!(flag = %selected_action, "Invalid force flag provided");
             return;
         }
     }
 
-    let resolved_apk_path = PathBuf::from(target_apk);
+    let resolved_apk_path = PathBuf::from(&target_apk);
     if !resolved_apk_path.exists() {
-        println!("\n\x1b[31m  ✗ APK file not found at specified path\x1b[0m\n");
+        if show_ui { println!("\n  {} APK file not found at specified path\n", "✗".red()); }
+        tracing::error!(path = %target_apk, "APK file not found");
         return;
     }
 
@@ -178,40 +239,52 @@ fn handle_patch_command(
         &final_region,
         final_force_action,
         final_pem_file,
+        show_ui,
     ) {
         Ok((action_verb, output_filename)) => {
-            println!("\nSUCCESS: {} {}!\n", action_verb, output_filename);
+            if show_ui { println!("\nSUCCESS: {} {}!\n", action_verb, output_filename.cyan()); }
+            tracing::info!(action = %action_verb, file = %output_filename, "APK Patching complete");
         },
         Err(_) => {
-            eprintln!("\nFAILURE: Couldnt patch APK!\n");
+            if show_ui { println!("\nFAILURE: Couldnt patch APK!\n"); }
+            tracing::error!("Failed to patch APK");
             std::process::exit(1);
         }
     }
 }
 
-fn handle_init_command() {
-    match workspace::init() {
-        Ok(_) => println!("\n\x1b[32m  ✓ Workspace initialized! Created config files and directories.\x1b[0m\n"),
-        Err(init_error) => println!("\n\x1b[31m  ✗ Failed to initialize workspace: {}\x1b[0m\n", init_error),
+fn handle_init_command(show_ui: bool) {
+    match workspace::init(show_ui) {
+        Ok(_) => {
+            if show_ui { println!("\n  {} Workspace initialized! Created config files and directories.\n", "✓".green()); }
+            tracing::info!("Workspace initialized successfully");
+        }
+        Err(err) => {
+            if show_ui { println!("\n  {} Failed to initialize workspace: {}\n", "✗".red(), err); }
+            tracing::error!(error = %err, "Failed to initialize workspace");
+        }
     }
 }
 
-fn handle_keys_command(action_type: KeysAction) {
+fn handle_keys_command(action_type: KeysAction, show_ui: bool) {
     match action_type {
         KeysAction::Print => {
             let current_keys = UserKeys::load();
-            current_keys.print_status();
+            current_keys.print_status(show_ui);
         }
         KeysAction::Load => {
-            let _loaded_keys = UserKeys::prompt_interactive_load();
+            let _loaded_keys = UserKeys::prompt_interactive_load(show_ui);
+        }
+        KeysAction::Env => {
+            UserKeys::print_env_template(show_ui);
         }
     }
 }
 
-fn handle_config_command(action_type: ConfigAction) {
+fn handle_config_command(action_type: ConfigAction, show_ui: bool) {
     match action_type {
-        ConfigAction::Reset => AppConfig::reset(),
-        ConfigAction::Create => AppConfig::create(),
+        ConfigAction::Reset => AppConfig::reset(show_ui),
+        ConfigAction::Create => AppConfig::create(show_ui),
     }
 }
 

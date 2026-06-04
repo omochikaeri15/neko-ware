@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
+use colored::Colorize;
+use tracing::{info, warn, error, debug};
 
 use crate::keys::UserKeys;
 use crate::patch::modify;
@@ -18,12 +20,15 @@ pub fn execute_patch(
     target_region: &str,
     force_action: Option<String>,
     pem_file: Option<String>,
+    show_ui: bool,
 ) -> Result<(String, String), String> {
+    debug!(target = %input_apk_path.display(), "Initiating APK patch cycle");
 
     let current_keys = UserKeys::load();
-    let valid_region_key = current_keys.get_validated_region_key(target_region).map_err(|error| {
-        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
-        error
+    let valid_region_key = current_keys.get_validated_region_key(target_region).map_err(|err| {
+        if show_ui { println!("\n  {} ERROR: {}", "✗".red(), err); }
+        error!(error = %err, "Failed to retrieve validated region key");
+        err
     })?;
 
     let application_directory = PathBuf::from("app_workspace");
@@ -34,14 +39,16 @@ pub fn execute_patch(
     let _creation_result = fs::create_dir_all(&temporary_binary_directory);
     let _creation_result = fs::create_dir_all(&temporary_assets_directory);
 
-    let source_apk_file = fs::File::open(input_apk_path).map_err(|error| {
-        let out = format!("Failed to open APK: {}", error);
-        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+    let source_apk_file = fs::File::open(input_apk_path).map_err(|err| {
+        let out = format!("Failed to open APK: {}", err);
+        if show_ui { println!("\n  {} ERROR: {}", "✗".red(), out); }
+        error!(error = %err, "Failed to open source APK file");
         out
     })?;
-    let mut zip_archive = ZipArchive::new(source_apk_file).map_err(|error| {
-        let out = format!("Failed to read APK archive: {}", error);
-        eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+    let mut zip_archive = ZipArchive::new(source_apk_file).map_err(|err| {
+        let out = format!("Failed to read APK archive: {}", err);
+        if show_ui { println!("\n  {} ERROR: {}", "✗".red(), out); }
+        error!(error = %err, "Failed to read APK archive");
         out
     })?;
 
@@ -49,22 +56,20 @@ pub fn execute_patch(
     let resource_extraction_path = temporary_binary_directory.join("resources.arsc");
     let mut extracted_resource_table = false;
 
+    debug!("Extracting core manifest and resource tables");
     for archive_index in 0..zip_archive.len() {
         let mut inner_file = match zip_archive.by_index(archive_index) {
             Ok(file) => file,
             Err(_) => continue,
         };
 
-        let inner_file_name = match inner_file.name() {
-            Ok(name_cow) => name_cow.to_string(),
-            Err(_) => continue,
-        };
+        let inner_file_name = inner_file.name().to_string();
 
         if inner_file_name == "AndroidManifest.xml" {
-            let mut output_manifest_file = fs::File::create(&manifest_extraction_path).map_err(|error| error.to_string())?;
+            let mut output_manifest_file = fs::File::create(&manifest_extraction_path).map_err(|err| err.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_manifest_file);
         } else if inner_file_name == "resources.arsc" {
-            let mut output_resource_file = fs::File::create(&resource_extraction_path).map_err(|error| error.to_string())?;
+            let mut output_resource_file = fs::File::create(&resource_extraction_path).map_err(|err| err.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_resource_file);
             extracted_resource_table = true;
         }
@@ -74,9 +79,10 @@ pub fn execute_patch(
     let optional_resource_path = if extracted_resource_table { Some(resource_extraction_path.as_path()) } else { None };
 
     let mut apk_manifest_editor = modify::ApkEditor::from_paths(&manifest_extraction_path, optional_resource_path)
-        .map_err(|error| {
-            let out = format!("Failed to parse APK binaries: {}", error);
-            eprintln!("\n\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+        .map_err(|err| {
+            let out = format!("Failed to parse APK binaries: {}", err);
+            if show_ui { println!("\n  {} ERROR: {}", "✗".red(), out); }
+            error!(error = %err, "Failed to parse APK binaries");
             out
         })?;
 
@@ -89,42 +95,52 @@ pub fn execute_patch(
         _ => current_package == target_package_full,
     };
 
-    println!();
+    if show_ui { println!(); }
     if force_action.is_some() {
-        println!("  \x1b[33m!\x1b[0m Bypassed identity check via \x1b[36mforce\x1b[0m flag");
+        if show_ui { println!("  {} Bypassed identity check via {} flag", "!".yellow(), "force".cyan()); }
+        warn!("Bypassed identity check via force flag");
     } else {
-        println!("  \x1b[32m✓\x1b[0m Analyzed APK identity");
+        if show_ui { println!("  {} Analyzed APK identity", "✓".green()); }
+        info!("Analyzed APK identity");
     }
 
     if !is_update {
+        debug!("Applying XML modifications and patching manifest");
         apk_manifest_editor.apply_patches(target_package_suffix, target_app_title)
-            .map_err(|error| {
-                let out = format!("Patch Error: {}", error);
-                eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+            .map_err(|err| {
+                let out = format!("Patch Error: {}", err);
+                if show_ui { println!("  {} ERROR: {}", "✗".red(), out); }
+                error!(error = %err, "Patch application failed");
                 out
             })?;
 
         apk_manifest_editor.save_to_paths(&manifest_extraction_path, optional_resource_path)
-            .map_err(|error| {
-                let out = format!("Failed to save patched binaries: {}", error);
-                eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+            .map_err(|err| {
+                let out = format!("Failed to save patched binaries: {}", err);
+                if show_ui { println!("  {} ERROR: {}", "✗".red(), out); }
+                error!(error = %err, "Failed to save patched binaries");
                 out
             })?;
     }
 
+    debug!("Compressing user modifications into DownloadLocal pack stream");
     let packed_files_count = pack::stream_pack_and_list(
         patch_directory,
         &temporary_assets_directory,
         "DownloadLocal",
         valid_region_key
-    ).map_err(|error| {
-        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
-        error
+    ).map_err(|err| {
+        if show_ui { println!("  {} ERROR: {}", "✗".red(), err); }
+        error!(error = %err, "Failed to pack patch files");
+        err
     })?;
-    eprintln!("  \x1b[32m✓\x1b[0m Packaged \x1b[36m{}\x1b[0m files into a pack", packed_files_count);
+
+    if show_ui { println!("  {} Packaged {} files into a pack", "✓".green(), packed_files_count.to_string().cyan()); }
+    info!(packed_files = packed_files_count, "Successfully built modification pack");
 
     let unsigned_apk_path = application_directory.join("unsigned_final.apk");
 
+    debug!("Injecting modifications into unaligned APK clone");
     let injected_file_count = modify::inject_and_build_apk(
         input_apk_path,
         &unsigned_apk_path,
@@ -133,26 +149,39 @@ pub fn execute_patch(
         loose_directory,
         if is_update { None } else { Some(manifest_extraction_path.as_path()) },
         if is_update || !extracted_resource_table { None } else { Some(resource_extraction_path.as_path()) }
-    ).map_err(|error| {
-        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
-        error
+    ).map_err(|err| {
+        if show_ui { println!("  {} ERROR: {}", "✗".red(), err); }
+        error!(error = %err, "APK injection and build failed");
+        err
     })?;
-    println!("  \x1b[32m✓\x1b[0m Rebuilt modified APK");
-    println!("  \x1b[32m✓\x1b[0m Injected \x1b[36m{}\x1b[0m additional assets", injected_file_count);
+
+    if show_ui {
+        println!("  {} Rebuilt modified APK", "✓".green());
+        println!("  {} Injected {} additional assets", "✓".green(), injected_file_count.to_string().cyan());
+    }
+    info!(injected_assets = injected_file_count, "Rebuilt APK with new injections");
 
     let normalized_apk_path = application_directory.join("normalized_final.apk");
-    modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, input_apk_path).map_err(|error| {
-        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", error);
-        error
+    debug!("Normalizing structural zip alignment");
+    modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, input_apk_path).map_err(|err| {
+        if show_ui { println!("  {} ERROR: {}", "✗".red(), err); }
+        error!(error = %err, "APK alignment and normalization failed");
+        err
     })?;
-    println!("  \x1b[32m✓\x1b[0m Normalized binaries");
 
-    sign::sign_apk_file(&normalized_apk_path, pem_file).map_err(|error| {
-        let out = error.to_string();
-        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+    if show_ui { println!("  {} Normalized binaries", "✓".green()); }
+    info!("Successfully restored storage alignment semantics");
+
+    debug!("Executing cryptographic signature schema");
+    sign::sign_apk_file(&normalized_apk_path, pem_file).map_err(|err| {
+        let out = err.to_string();
+        if show_ui { println!("  {} ERROR: {}", "✗".red(), out); }
+        error!(error = %out, "Cryptographic signing failed");
         out
     })?;
-    println!("  \x1b[32m✓\x1b[0m Signed APK");
+
+    if show_ui { println!("  {} Signed APK", "✓".green()); }
+    info!("Successfully signed binary");
 
     let (action_verb, destination_file_path) = if is_update {
         ("Updated".to_string(), input_apk_path.to_path_buf())
@@ -183,9 +212,10 @@ pub fn execute_patch(
         ("Created".to_string(), output_directory_path.join(chosen_filename))
     };
 
-    fs::copy(&normalized_apk_path, &destination_file_path).map_err(|error| {
-        let out = format!("Failed to copy to output target: {}", error);
-        eprintln!("\x1b[31m  ✗ ERROR: {}\x1b[0m", out);
+    fs::copy(&normalized_apk_path, &destination_file_path).map_err(|err| {
+        let out = format!("Failed to copy to output target: {}", err);
+        if show_ui { println!("  {} ERROR: {}", "✗".red(), out); }
+        error!(error = %err, "Failed to move APK to output location");
         out
     })?;
 

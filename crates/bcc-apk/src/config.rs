@@ -1,6 +1,8 @@
 use crate::io::{load_local, save_local};
 use serde::{Deserialize, Serialize};
 use std::io::{stdin, stdout, Write};
+use colored::Colorize;
+use tracing::{info, error};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AppConfig {
@@ -41,13 +43,19 @@ impl AppConfig {
         save_local("config.json", self);
     }
 
-    pub fn reset() {
+    pub fn reset(show_ui: bool) {
         let fresh_config = Self::default();
         fresh_config.save();
-        println!("\n\x1b[32m  ✓ config.json has been reset to defaults.\x1b[0m\n");
+        if show_ui { println!("\n  {} {} has been reset to defaults.\n", "✓".green(), "config.json".cyan()); }
+        info!("Config reset to defaults");
     }
 
-    pub fn create() {
+    pub fn create(show_ui: bool) {
+        if !show_ui {
+            error!("Interactive config loading requires standard UI mode.");
+            std::process::exit(1);
+        }
+
         let mut active_config = Self::load();
         println!("\n--- BCC-APK Configuration Wizard ---");
 
@@ -72,7 +80,7 @@ impl AppConfig {
             "3" => active_config.region = String::from("TW"),
             "4" => active_config.region = String::from("KR"),
             "" => {}
-            _ => println!("\x1b[31mInvalid choice. Keeping current region.\x1b[0m"),
+            _ => println!("{}", "Invalid choice. Keeping current region.".red()),
         }
 
         let patch_input = request_user_input("\nEnter Patch Directory: ");
@@ -95,7 +103,7 @@ impl AppConfig {
         }
 
         active_config.save();
-        println!("\n  \x1b[32m✓\x1b[0m Configuration saved to \x1b[36mconfig.json\x1b[0m\n");
+        println!("\n  {} Configuration saved to {}\n", "✓".green(), "config.json".cyan());
     }
 }
 

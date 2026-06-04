@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use rayon::prelude::*;
+use tracing::{debug, trace};
 
 const APK_SIGNING_BLOCK_MAGIC: &[u8] = b"APK Sig Block 42";
 const APK_SIGNING_BLOCK_V2_ID: u32 = 0x7109871a;
@@ -81,6 +82,7 @@ impl Signer {
         let parsed_certificate_der = rasn::der::decode::<Certificate>(&raw_der_decoded_bytes)
             .map_err(|error| anyhow::anyhow!("Failed to parse ASN.1 Certificate: {}", error))?;
 
+        debug!("Derived RSA Private Key and loaded ASN.1 X.509 Certificate successfully");
         Ok(Self {
             private_key: parsed_private_key,
             public_key: derived_public_key,
@@ -135,6 +137,7 @@ pub fn sign_apk_file(apk_file_path: &Path, pem_file: Option<String>) -> Result<(
     final_output_file.seek(SeekFrom::Start(new_end_of_central_directory_offset + 16))?;
     final_output_file.write_u32::<LittleEndian>(new_central_directory_start_offset as u32)?;
 
+    trace!("Injected APK Signature Scheme V2 block completely");
     Ok(())
 }
 

@@ -2,10 +2,12 @@ use std::fs;
 use crate::io::get_local_dir;
 use crate::keys::UserKeys;
 use crate::config::AppConfig;
+use tracing::debug;
 
 const README_CONTENT: &[u8] = include_bytes!("../README.md");
 
-pub fn init() -> std::io::Result<()> {
+pub fn init(_show_ui: bool) -> std::io::Result<()> {
+    debug!("Initializing default workspace configurations...");
     let default_keys = UserKeys::default();
     default_keys.save();
 
@@ -22,6 +24,7 @@ pub fn init() -> std::io::Result<()> {
     mod_directory.push("mod");
 
     if mod_directory.exists() {
+        debug!("Purging pre-existing mod directory.");
         let _removal_result = fs::remove_dir_all(&mod_directory);
     }
 
@@ -32,6 +35,7 @@ pub fn init() -> std::io::Result<()> {
         "apk",
     ];
 
+    debug!("Creating fresh workspace directories.");
     for target_folder in required_folder_names {
         let mut directory_path = base_directory.clone();
         directory_path.push(target_folder);

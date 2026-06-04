@@ -3,6 +3,7 @@ use std::path::Path;
 use std::collections::HashSet;
 use std::io::{Read, Write, Cursor};
 use zip::{ZipArchive, ZipWriter};
+use tracing::{debug, trace};
 
 use resand::{
     res_value::{ResValue, ResValueType},
@@ -104,6 +105,8 @@ impl ApkEditor {
         let new_package_tail = format!("battlecats{}", target_package_suffix.trim());
         package_parts.push(&new_package_tail);
         let final_constructed_package_name = package_parts.join(".");
+
+        debug!(original = %original_package_name, modified = %final_constructed_package_name, "Altered manifest package identifier");
 
         package_attribute.write_string(final_constructed_package_name.as_str().into(), &mut self.manifest.string_pool);
 
@@ -265,7 +268,7 @@ pub fn inject_and_build_apk(
 
     for archive_index in 0..zip_archive.len() {
         let archive_file = zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
-        let internal_file_name = archive_file.name().map_err(|error| error.to_string())?.to_string();
+        let internal_file_name = archive_file.name().to_string();
 
         let uppercase_file_name = internal_file_name.to_ascii_uppercase();
         if uppercase_file_name.starts_with("META-INF/") || uppercase_file_name.starts_with("META-INF\\") || uppercase_file_name.contains("STAMP-CERT") {
@@ -302,6 +305,7 @@ pub fn inject_and_build_apk(
         zip_writer.start_file(internal_zip_path, write_options).map_err(|error| error.to_string())?;
         zip_writer.write_all(&raw_file_data).map_err(|error| error.to_string())?;
         successfully_injected_count += 1;
+        trace!(file = %internal_zip_path, "Injected modified payload into APK stream");
         Ok(())
     };
 
@@ -342,7 +346,7 @@ pub fn inject_and_build_apk(
             let source_image_path = icons_directory.join(blueprint_file_name);
             let Ok(decoded_source_image) = image::open(&source_image_path) else { continue; };
 
-            let target_resolutions = vec![
+            let target_resolutions = [
                 ("drawable-xxxhdpi", size_xxxhdpi),
                 ("drawable-xxhdpi", size_xxhdpi),
                 ("drawable-xhdpi", size_xhdpi),
@@ -373,6 +377,7 @@ pub fn inject_and_build_apk(
 
                 let _write_result = zip_writer.write_all(&memory_cursor.into_inner());
                 successfully_injected_count += 1;
+                trace!(file = %final_zip_path, "Injected scaled icon asset");
             }
         }
     }
@@ -390,7 +395,7 @@ pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_ref
     for archive_index in 0..reference_zip_archive.len() {
         let archive_file = reference_zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
         if archive_file.compression() == zip::CompressionMethod::Stored {
-            let archive_file_name = archive_file.name().map_err(|error| error.to_string())?.to_string();
+            let archive_file_name = archive_file.name().to_string();
             stored_files_ledger.insert(archive_file_name);
         }
     }
@@ -406,7 +411,7 @@ pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_ref
     for archive_index in 0..current_zip_archive.len() {
         let mut inner_archive_file = current_zip_archive.by_index(archive_index).map_err(|error| error.to_string())?;
 
-        let internal_file_name = inner_archive_file.name().map_err(|error| error.to_string())?.to_string();
+        let internal_file_name = inner_archive_file.name().to_string();
         let internal_file_extension = Path::new(&internal_file_name).extension().and_then(|extension_string| extension_string.to_str()).unwrap_or("");
 
         let requires_forced_store = uncompressed_extension_overrides.contains(&internal_file_extension);
@@ -428,6 +433,7 @@ pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_ref
 
         final_zip_writer.start_file(&internal_file_name, normalized_write_options).map_err(|error| error.to_string())?;
         final_zip_writer.write_all(&extracted_file_data).map_err(|error| error.to_string())?;
+        trace!(file = %internal_file_name, "Re-aligned structural storage data block");
     }
 
     final_zip_writer.finish().map_err(|error| error.to_string())?;

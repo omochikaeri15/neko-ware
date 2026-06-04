@@ -53,9 +53,6 @@ enum KeysAction {
 }
 
 fn main() {
-    #[cfg(windows)]
-    let _ = colored::control::set_virtual_terminal(true);
-
     let cli = Cli::parse();
 
     let show_ui = !cli.json && !cli.verbose && !cli.trace;
@@ -69,11 +66,24 @@ fn main() {
         } else {
             Level::INFO
         };
-        fmt().json().with_max_level(max_level).init();
+        fmt()
+            .json()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(max_level)
+            .init();
     } else if cli.trace {
-        fmt().with_max_level(Level::TRACE).init();
+        fmt()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(Level::TRACE)
+            .init();
     } else if cli.verbose {
-        fmt().with_max_level(Level::DEBUG).init();
+        fmt()
+            .with_file(true)
+            .with_line_number(true)
+            .with_max_level(Level::DEBUG)
+            .init();
     }
 
     match cli.command {

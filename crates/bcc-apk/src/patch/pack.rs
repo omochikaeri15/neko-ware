@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::{Write, BufWriter};
 use std::path::Path;
 use nyanko::pack::cryptology;
+use tracing::{debug, trace};
 use crate::keys::RegionKey;
 
 pub fn stream_pack_and_list(
@@ -81,9 +82,12 @@ pub fn stream_pack_and_list(
         let newly_encrypted_size = raw_file_data.len();
         cumulative_list_string.push_str(&format!("{},{},{}\n", extracted_filename, current_byte_address, newly_encrypted_size));
         current_byte_address += newly_encrypted_size;
+
+        trace!(file = %extracted_filename, size = newly_encrypted_size, "Encrypted and packed file into output stream");
     }
 
     buffered_pack_writer.flush().map_err(|error| format!("Failed to flush pack stream to disk: {}", error))?;
+    debug!("Successfully flushed multi-gigabyte pack stream buffer to physical disk");
 
     let encrypted_list_bytes = cryptology::encrypt_list(&cumulative_list_string)
         .map_err(|error| format!("Failed to encrypt list file: {}", error))?;

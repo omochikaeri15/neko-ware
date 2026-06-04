@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use rasn_pkix::{Certificate, SubjectPublicKeyInfo};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use rand_core::OsRng;
+use colored::Colorize;
 
 pub const DEFAULT_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmBNx3G6wn5h63
@@ -67,30 +68,58 @@ pub fn get_pem_path() -> PathBuf {
     PathBuf::from("debug.pem")
 }
 
+pub fn print_env_template(show_ui: bool) {
+    if !show_ui {
+        tracing::info!(
+            msg = "Environment variable configuration requirements",
+            required_vars = "BCC_PEM"
+        );
+        return;
+    }
+
+    println!("\n=================================================================================");
+    println!("                   BCC HEADLESS ENVIRONMENT VARIABLES                            ");
+    println!("=================================================================================");
+    println!("To bypass the local 'debug.pem' file, export the complete PEM string.\n");
+
+    println!("  {:<15} : Full RSA private key and certificate string", "BCC_PEM".cyan().bold());
+    println!("=================================================================================");
+
+    println!("\n{}: Wrap the entire multi-line string in quotes inside your environment:", "TIP".green().bold());
+    println!("{}", "  export BCC_PEM=\"-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END CERTIFICATE-----\"".bright_black());
+    println!();
+}
+
 pub fn get_active_pem(custom_override: Option<&String>) -> String {
     if let Some(custom_path) = custom_override {
         let path = PathBuf::from(custom_path);
         if let Ok(content) = fs::read_to_string(&path) {
             if content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
+                tracing::debug!("Loaded custom identity from {}", path.display());
                 return content;
             }
         }
+        tracing::error!("Custom PEM file is invalid or missing: {}", path.display());
         std::process::exit(1);
     }
 
     if let Ok(env_pem) = std::env::var("BCC_PEM") {
         if env_pem.contains("-----BEGIN PRIVATE KEY-----") && env_pem.contains("-----BEGIN CERTIFICATE-----") {
+            tracing::debug!("Loaded identity from BCC_PEM environment variable");
             return env_pem;
         }
+        tracing::warn!("BCC_PEM env-var found but invalid. Falling back...");
     }
 
     let local_path = get_pem_path();
     if let Ok(content) = fs::read_to_string(&local_path) {
         if content.contains("-----BEGIN PRIVATE KEY-----") && content.contains("-----BEGIN CERTIFICATE-----") {
+            tracing::debug!("Loaded local identity from debug.pem");
             return content;
         }
     }
 
+    tracing::debug!("Falling back to hardcoded default PEM");
     DEFAULT_PEM.to_string()
 }
 
@@ -141,7 +170,8 @@ pub fn generate_pem() -> Result<String> {
     final_combined_pem.push_str("\n-----BEGIN CERTIFICATE-----\n");
 
     for chunk in base64_final_certificate.as_bytes().chunks(64) {
-        final_combined_pem.push_str(std::str::from_utf8(chunk).unwrap());
+        let text_chunk = std::str::from_utf8(chunk).context("Base64 chunk contains invalid UTF-8")?;
+        final_combined_pem.push_str(text_chunk);
         final_combined_pem.push('\n');
     }
     final_combined_pem.push_str("-----END CERTIFICATE-----\n");
