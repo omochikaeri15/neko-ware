@@ -1,7 +1,7 @@
 mod config;
 mod io;
 mod keys;
-pub mod patch;
+mod patch;
 pub mod pem;
 pub mod workspace;
 
@@ -31,7 +31,7 @@ struct Cli {
 pub struct PatchArgs {
     #[arg(help = "Path to the target APK file")]
     pub apk_path: String,
-    #[arg(short = 'p', long = "patch", help = "Override default patch directory")]
+    #[arg(short = 'p', long = "mod", help = "Override default mod directory")]
     pub patch_dir: Option<String>,
     #[arg(short = 'i', long = "icons", help = "Override default icons directory")]
     pub icons_dir: Option<String>,
@@ -267,9 +267,9 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
         }
         Err(_) => {
             if show_ui {
-                println!("\nFAILURE: Couldnt patch APK!\n");
+                println!("\nFAILURE: Couldnt mod APK!\n");
             }
-            tracing::error!("Failed to patch APK");
+            tracing::error!("Failed to mod APK");
             std::process::exit(1);
         }
     }

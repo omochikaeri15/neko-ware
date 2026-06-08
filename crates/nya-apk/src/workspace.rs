@@ -28,7 +28,7 @@ pub fn init(_show_ui: bool) -> std::io::Result<()> {
         let _removal_result = fs::remove_dir_all(&mod_directory);
     }
 
-    let required_folder_names = vec!["mod/loose", "mod/patch", "mod/icons", "apk"];
+    let required_folder_names = vec!["mod/loose", "mod/mod", "mod/icons", "apk"];
 
     debug!("Creating fresh workspace directories.");
     for target_folder in required_folder_names {

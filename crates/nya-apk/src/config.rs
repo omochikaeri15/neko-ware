@@ -22,7 +22,7 @@ impl Default for AppConfig {
             app_name: String::from("The Modded Cats"),
             package_suffix: String::from("mod"),
             region: String::from("EN"),
-            patch_dir: String::from("mod/patch"),
+            patch_dir: String::from("mod/mod"),
             loose_dir: String::from("mod/loose"),
             icons_dir: String::from("mod/icons"),
             output_dir: String::from("apk"),

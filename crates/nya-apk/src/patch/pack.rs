@@ -26,7 +26,7 @@ pub fn stream_pack_and_list(
 
     let total_files_count = valid_files_with_sizes.len();
     if total_files_count == 0 {
-        return Err("No files found in the patch directory.".to_string());
+        return Err("No files found in the mod directory.".to_string());
     }
 
     let lowercase_pack_name = target_pack_name.to_lowercase();

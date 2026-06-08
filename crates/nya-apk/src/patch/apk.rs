@@ -24,7 +24,7 @@ pub struct PatchConfig {
 }
 
 pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
-    debug!(target = %config.input_apk_path.display(), "Initiating APK patch cycle");
+    debug!(target = %config.input_apk_path.display(), "Initiating APK mod cycle");
 
     let current_keys = UserKeys::load();
     let valid_region_key = current_keys
@@ -162,7 +162,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         if config.show_ui {
             println!("  {} ERROR: {err}", "✗".red());
         }
-        error!(error = %err, "Failed to pack patch files");
+        error!(error = %err, "Failed to pack mod files");
         err
     })?;
 
