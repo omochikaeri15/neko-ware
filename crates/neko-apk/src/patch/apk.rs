@@ -69,7 +69,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
             err
         })?;
 
-    let application_directory = PathBuf::from("app_workspace");
+    let application_directory = PathBuf::from("app");
     let temporary_binary_directory = application_directory.join("binaries");
     let temporary_assets_directory = application_directory.join("assets");
 

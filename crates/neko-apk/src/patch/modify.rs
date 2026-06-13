@@ -377,12 +377,6 @@ pub fn inject_and_build_apk(
                         continue;
                     }
                 }
-            } else {
-                if custom_code_files.contains_key(&short_file_name) {
-                    trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
-                    discovered_code_zip_paths.push((internal_file_name.clone(), short_file_name));
-                    continue;
-                }
             }
         }
 
@@ -437,10 +431,10 @@ pub fn inject_and_build_apk(
             if !has_target_architecture_folder {
                 if show_ui {
                     use colored::Colorize;
-                    println!("  {} Target arcitecture missing", "!".yellow());
+                    println!("  {} Target architecture missing from APK", "!".yellow());
                     println!("  {} Skipping code injection", "!".yellow());
                 }
-                tracing::warn!("Target architecture missing, skipping code injection");
+                tracing::warn!("Target architecture missing from APK, skipping code injection");
             } else {
                 debug!("Injecting modded native code payloads for architecture {}...", arch);
                 let mut successfully_injected_keys = HashSet::new();
@@ -457,36 +451,19 @@ pub fn inject_and_build_apk(
                     custom_code_files.remove(&key);
                 }
 
-                for (short_name, _local_path) in custom_code_files {
-                    trace!(file = %short_name, "Native library not found in target architecture; silently skipping injection");
-                }
-            }
-        } else {
-            debug!("Injecting modded native code payloads...");
-
-            let mut successfully_injected_keys = HashSet::new();
-
-            for (zip_path, short_name) in discovered_code_zip_paths {
-                if let Some(local_path) = custom_code_files.get(&short_name) {
-                    trace!(file = %zip_path, "Overwriting exact zip path with modded native library");
-                    inject_local_file(local_path, &zip_path, true)?;
-                    successfully_injected_keys.insert(short_name.clone());
-                }
-            }
-
-            for key in successfully_injected_keys {
-                custom_code_files.remove(&key);
-            }
-
-            let target_architectures = ["x86_64"];
-
-            for (short_name, local_path) in custom_code_files {
-                for architecture in target_architectures {
-                    let fallback_path = format!("lib/{architecture}/{short_name}");
-                    trace!(file = %fallback_path, "No vanilla binary found in root sweep, using fallback structural path");
+                for (short_name, local_path) in custom_code_files {
+                    let fallback_path = format!("lib/{arch}/{short_name}");
+                    trace!(file = %fallback_path, "Injecting new native library into target architecture");
                     inject_local_file(&local_path, &fallback_path, true)?;
                 }
             }
+        } else {
+            if show_ui {
+                use colored::Colorize;
+                println!("  {} No architecture specified", "!".yellow());
+                println!("  {} Skipping code injection", "!".yellow());
+            }
+            debug!("No architecture specified, skipping code injection");
         }
     }
 
@@ -560,7 +537,7 @@ pub fn inject_and_build_apk(
                     .is_err()
                 {
                     continue;
-                };
+                }
 
                 let injection_options =
                     zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);

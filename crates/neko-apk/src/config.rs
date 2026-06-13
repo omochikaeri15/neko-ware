@@ -24,13 +24,13 @@ pub struct AppConfig {
     pub package_suffix: String,
     pub region: String,
     pub architecture: Option<String>,
+    pub output_behavior: OutputBehavior,
+    pub pem_file: Option<String>,
     pub patch_dir: String,
     pub loose_dir: String,
     pub icons_dir: String,
     pub code_dir: String,
     pub output_dir: String,
-    pub pem_file: Option<String>,
-    pub output_behavior: OutputBehavior,
 }
 
 impl Default for AppConfig {
@@ -40,13 +40,13 @@ impl Default for AppConfig {
             package_suffix: String::from("mod"),
             region: String::from("EN"),
             architecture: None,
+            output_behavior: OutputBehavior::default(),
+            pem_file: None,
             patch_dir: String::from("mod/patch"),
             loose_dir: String::from("mod/loose"),
             icons_dir: String::from("mod/icons"),
             code_dir: String::from("mod/code"),
             output_dir: String::from("apk"),
-            pem_file: None,
-            output_behavior: OutputBehavior::default(),
         }
     }
 }
@@ -140,6 +140,13 @@ impl AppConfig {
             _ => println!("{}", "Invalid choice. Keeping current output behavior.".red()),
         }
 
+        let pem_input = request_user_input("Enter custom PEM identity file: ");
+        if !pem_input.is_empty() {
+            active_config.pem_file = Some(pem_input);
+        } else {
+            active_config.pem_file = None;
+        }
+
         let patch_input = request_user_input("\nEnter Patch Directory: ");
         if !patch_input.is_empty() {
             active_config.patch_dir = patch_input;
@@ -163,13 +170,6 @@ impl AppConfig {
         let code_input = request_user_input("Enter Code Directory: ");
         if !code_input.is_empty() {
             active_config.code_dir = code_input;
-        }
-
-        let pem_input = request_user_input("Enter custom PEM identity file: ");
-        if !pem_input.is_empty() {
-            active_config.pem_file = Some(pem_input);
-        } else {
-            active_config.pem_file = None;
         }
 
         active_config.save();
