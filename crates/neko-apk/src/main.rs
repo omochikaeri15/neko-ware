@@ -37,6 +37,8 @@ pub struct PatchArgs {
     pub icons_dir: Option<String>,
     #[arg(short = 'l', long = "loose", help = "Override default loose directory")]
     pub loose_dir: Option<String>,
+    #[arg(short = 'c', long = "code", help = "Override default code directory")]
+    pub code_dir: Option<String>,
     #[arg(short = 'o', long = "output", help = "Override default APK creation directory")]
     pub output_dir: Option<String>,
     #[arg(short = 'n', long = "name", help = "Override application name")]
@@ -49,6 +51,8 @@ pub struct PatchArgs {
     pub force_action: Option<String>,
     #[arg(short = 'm', long = "pem", help = "Override default PEM identity file")]
     pub pem_file: Option<String>,
+    #[arg(short = 'u', long = "architecture", help = "Override target architecture")]
+    pub architecture: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -166,18 +170,18 @@ fn handle_pem_command(action_type: PemAction, show_ui: bool) {
                         }
                         tracing::info!("Successfully created and saved debug.pem");
                     }
-                    Err(e) => {
+                    Err(err) => {
                         if show_ui {
-                            println!("  {} Failed to save PEM: {}\n", "✗".red(), e);
+                            println!("  {} Failed to save PEM: {}\n", "✗".red(), err);
                         }
-                        tracing::error!(error = %e, "Failed to save PEM");
+                        tracing::error!(error = %err, "Failed to save PEM");
                     }
                 },
-                Err(e) => {
+                Err(err) => {
                     if show_ui {
-                        println!("  {} Failed to generate PEM: {}\n", "✗".red(), e);
+                        println!("  {} Failed to generate PEM: {}\n", "✗".red(), err);
                     }
-                    tracing::error!(error = %e, "Failed to generate PEM");
+                    tracing::error!(error = %err, "Failed to generate PEM");
                 }
             }
         }
@@ -193,9 +197,11 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
     let final_patch_dir = args.patch_dir.unwrap_or(base_config.patch_dir);
     let final_icons_dir = args.icons_dir.unwrap_or(base_config.icons_dir);
     let final_loose_dir = args.loose_dir.unwrap_or(base_config.loose_dir);
+    let final_code_dir = args.code_dir.unwrap_or(base_config.code_dir);
     let final_output_dir = args.output_dir.unwrap_or(base_config.output_dir);
     let final_app_name = args.app_name.unwrap_or(base_config.app_name);
     let final_pem_file = args.pem_file.or(base_config.pem_file);
+    let final_architecture = args.architecture.or(base_config.architecture);
 
     let final_package_suffix = args
         .package_suffix
@@ -249,12 +255,14 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
         patch_directory: PathBuf::from(final_patch_dir),
         icons_directory: PathBuf::from(final_icons_dir),
         loose_directory: PathBuf::from(final_loose_dir),
+        code_directory: PathBuf::from(final_code_dir),
         output_directory_path: PathBuf::from(final_output_dir),
         target_app_title: final_app_name,
         target_package_suffix: final_package_suffix,
         target_region: final_region,
         force_action: final_force_action,
         pem_file: final_pem_file,
+        target_architecture: final_architecture,
         show_ui,
     };
 

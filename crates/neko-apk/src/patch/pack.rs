@@ -26,7 +26,7 @@ pub fn stream_pack_and_list(
 
     let total_files_count = valid_files_with_sizes.len();
     if total_files_count == 0 {
-        return Err("No files found in the mod directory.".to_string());
+        return Ok(0);
     }
 
     let lowercase_pack_name = target_pack_name.to_lowercase();
@@ -45,7 +45,7 @@ pub fn stream_pack_and_list(
             hex::decode(&region_cryptology_key.iv).map_err(|_| "Invalid Region IV Hex".to_string())?;
 
         if decoded_key_bytes.len() != 16 || decoded_iv_bytes.len() != 16 {
-            return Err("Region Key/IV length is incorrect. Ensure they are 32 hex characters.".to_string());
+            return Err("Region Key/IV length is incorrect Ensure they are 32 hex characters".to_string());
         }
 
         let standard_key_array: [u8; 16] = decoded_key_bytes.try_into().map_err(|_| "Failed to map key array")?;

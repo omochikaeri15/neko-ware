@@ -12,8 +12,10 @@ pub struct AppConfig {
     pub patch_dir: String,
     pub loose_dir: String,
     pub icons_dir: String,
+    pub code_dir: String,
     pub output_dir: String,
     pub pem_file: Option<String>,
+    pub architecture: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -25,8 +27,10 @@ impl Default for AppConfig {
             patch_dir: String::from("mod/patch"),
             loose_dir: String::from("mod/loose"),
             icons_dir: String::from("mod/icons"),
+            code_dir: String::from("mod/code"),
             output_dir: String::from("apk"),
             pem_file: None,
+            architecture: None,
         }
     }
 }
@@ -92,6 +96,20 @@ impl AppConfig {
             _ => println!("{}", "Invalid choice. Keeping current region.".red()),
         }
 
+        println!("\nSelect Architecture:");
+        println!("1. arm64-v8a\n2. armeabi-v7a\n3. x86\n4. x86_64\n5. None");
+        let arch_selection = request_user_input("Choice (1-5) [leave blank to skip]: ");
+
+        match arch_selection.as_str() {
+            "1" => active_config.architecture = Some(String::from("arm64-v8a")),
+            "2" => active_config.architecture = Some(String::from("armeabi-v7a")),
+            "3" => active_config.architecture = Some(String::from("x86")),
+            "4" => active_config.architecture = Some(String::from("x86_64")),
+            "5" => active_config.architecture = None,
+            "" => {}
+            _ => println!("{}", "Invalid choice. Keeping current architecture.".red()),
+        }
+
         let patch_input = request_user_input("\nEnter Patch Directory: ");
         if !patch_input.is_empty() {
             active_config.patch_dir = patch_input;
@@ -110,6 +128,11 @@ impl AppConfig {
         let output_input = request_user_input("Enter Output Directory: ");
         if !output_input.is_empty() {
             active_config.output_dir = output_input;
+        }
+
+        let code_input = request_user_input("Enter Code Directory: ");
+        if !code_input.is_empty() {
+            active_config.code_dir = code_input;
         }
 
         let pem_input = request_user_input("Enter custom PEM identity file: ");

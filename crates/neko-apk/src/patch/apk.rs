@@ -8,24 +8,54 @@ use crate::keys::UserKeys;
 use crate::patch::modify;
 use crate::patch::pack;
 use crate::patch::sign;
-use crate::patch::libnative;
 
 pub struct PatchConfig {
     pub input_apk_path: PathBuf,
     pub patch_directory: PathBuf,
     pub icons_directory: PathBuf,
     pub loose_directory: PathBuf,
+    pub code_directory: PathBuf,
     pub output_directory_path: PathBuf,
     pub target_app_title: String,
     pub target_package_suffix: String,
     pub target_region: String,
     pub force_action: Option<String>,
     pub pem_file: Option<String>,
+    pub target_architecture: Option<String>,
     pub show_ui: bool,
 }
 
 pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     debug!(target = %config.input_apk_path.display(), "Initiating APK mod cycle");
+
+    let has_direct_files = |dir: &PathBuf| -> bool {
+        if !dir.exists() {
+            return false;
+        }
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    if !has_direct_files(&config.patch_directory)
+        && !has_direct_files(&config.icons_directory)
+        && !has_direct_files(&config.loose_directory)
+        && !has_direct_files(&config.code_directory)
+    {
+        let msg = "Found no files to patch";
+        if config.show_ui {
+            println!("\n  {} ERROR: {msg}", "✗".red());
+        }
+        error!("{msg}");
+        return Err(msg.to_string());
+    }
 
     let current_keys = UserKeys::load();
     let valid_region_key = current_keys
@@ -115,6 +145,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         _ => current_package == target_package_full,
     };
 
+    println!();
     if config.force_action.is_some() {
         if config.show_ui {
             println!("  {} Bypassed identity check via {} flag", "!".yellow(), "force".cyan());
@@ -179,11 +210,6 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         "Successfully built modification pack"
     );
 
-    let optional_libnative_path = libnative::find_local_libnative();
-    if optional_libnative_path.is_some() {
-        debug!("Modded libnative-lib.so detected, preparing to queue for injection");
-    }
-
     let unsigned_apk_path = application_directory.join("unsigned_final.apk");
 
     debug!("Injecting modifications into unaligned APK clone");
@@ -193,6 +219,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         &temporary_assets_directory,
         &config.icons_directory,
         &config.loose_directory,
+        &config.code_directory,
         if is_update {
             None
         } else {
@@ -203,7 +230,8 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         } else {
             Some(resource_extraction_path.as_path())
         },
-        optional_libnative_path.as_deref(),
+        config.target_architecture.as_deref(),
+        config.show_ui,
     )
         .map_err(|err| {
             if config.show_ui {
@@ -223,9 +251,6 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     }
 
     info!(injected_assets = injected_file_count, "Rebuilt APK with new injections");
-    if optional_libnative_path.is_some() {
-        info!("Successfully substituted vanilla libnative with custom binary payload");
-    }
 
     let normalized_apk_path = application_directory.join("normalized_final.apk");
     debug!("Normalizing structural zip alignment");

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -68,7 +68,7 @@ impl ApkEditor {
         match package_attribute.typed_value.data {
             ResValueType::String(ref string_value) => string_value
                 .resolve(&self.manifest.string_pool)
-                .map(|s| s.to_string()),
+                .map(|resolved_string| resolved_string.to_string()),
             _ => None,
         }
     }
@@ -285,9 +285,11 @@ pub fn inject_and_build_apk(
     assets_directory: &Path,
     icons_directory: &Path,
     loose_directory: &Path,
+    code_directory: &Path,
     patched_manifest_path: Option<&Path>,
     patched_arsc_path: Option<&Path>,
-    patched_libnative_path: Option<&Path>, // <--- NEW PARAMETER
+    target_architecture: Option<&str>,
+    show_ui: bool,
 ) -> Result<usize> {
     let source_file = fs::File::open(source_apk_path)?;
     let mut zip_archive = ZipArchive::new(source_file)?;
@@ -328,7 +330,19 @@ pub fn inject_and_build_apk(
     let has_custom_push_icon = icons_directory.join("push_icon.png").exists();
 
     let mut pre_existing_resource_folders = HashSet::new();
-    let mut discovered_libnative_zip_paths = Vec::new();
+
+    let mut custom_code_files = HashMap::new();
+    if code_directory.exists() {
+        let code_entries = fs::read_dir(code_directory)?;
+        for entry_result in code_entries.flatten() {
+            if entry_result.path().is_file() {
+                let filename = entry_result.file_name().to_string_lossy().into_owned();
+                custom_code_files.insert(filename, entry_result.path());
+            }
+        }
+    }
+    let mut discovered_code_zip_paths = Vec::new();
+    let mut has_target_architecture_folder = false;
 
     for archive_index in 0..zip_archive.len() {
         let archive_file = zip_archive.by_index(archive_index)?;
@@ -347,24 +361,35 @@ pub fn inject_and_build_apk(
             pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
         }
 
-        // NEW LOGIC: Intercept libnative-lib.so in the zip stream
-        if patched_libnative_path.is_some()
-            && internal_file_name.starts_with("lib/")
-            && internal_file_name.ends_with("libnative-lib.so")
-        {
-            trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
-            discovered_libnative_zip_paths.push(internal_file_name.clone());
-            continue;
+        let short_file_name = Path::new(&internal_file_name)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+
+        if internal_file_name.starts_with("lib/") {
+            if let Some(arch) = target_architecture {
+                if internal_file_name.starts_with(&format!("lib/{arch}/")) {
+                    has_target_architecture_folder = true;
+                    if custom_code_files.contains_key(&short_file_name) {
+                        trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
+                        discovered_code_zip_paths.push((internal_file_name.clone(), short_file_name));
+                        continue;
+                    }
+                }
+            } else {
+                if custom_code_files.contains_key(&short_file_name) {
+                    trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
+                    discovered_code_zip_paths.push((internal_file_name.clone(), short_file_name));
+                    continue;
+                }
+            }
         }
 
         if active_files_to_inject.contains(&internal_file_name) {
             continue;
         }
 
-        let short_file_name = Path::new(&internal_file_name)
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
         if internal_file_name.starts_with("res/") {
             if short_file_name == "icon.png" && has_custom_icon {
                 continue;
@@ -407,18 +432,60 @@ pub fn inject_and_build_apk(
         inject_local_file(arsc_path, "resources.arsc", true)?;
     }
 
-    // NEW LOGIC: Inject the modded libnative-lib.so
-    if let Some(lib_path) = patched_libnative_path {
-        debug!("Injecting modded libnative payload...");
-        if discovered_libnative_zip_paths.is_empty() {
-            // Fallback in case the APK archive structure was strange
-            let fallback_path = "lib/x86_64/libnative-lib.so";
-            trace!(file = %fallback_path, "No vanilla libnative found in root sweep, using fallback structural path");
-            inject_local_file(lib_path, fallback_path, true)?; // true = Store uncompressed (required for .so alignment)
+    if !custom_code_files.is_empty() {
+        if let Some(arch) = target_architecture {
+            if !has_target_architecture_folder {
+                if show_ui {
+                    use colored::Colorize;
+                    println!("  {} Target arcitecture missing", "!".yellow());
+                    println!("  {} Skipping code injection", "!".yellow());
+                }
+                tracing::warn!("Target architecture missing, skipping code injection");
+            } else {
+                debug!("Injecting modded native code payloads for architecture {}...", arch);
+                let mut successfully_injected_keys = HashSet::new();
+
+                for (zip_path, short_name) in discovered_code_zip_paths {
+                    if let Some(local_path) = custom_code_files.get(&short_name) {
+                        trace!(file = %zip_path, "Overwriting exact zip path with modded native library");
+                        inject_local_file(local_path, &zip_path, true)?;
+                        successfully_injected_keys.insert(short_name.clone());
+                    }
+                }
+
+                for key in successfully_injected_keys {
+                    custom_code_files.remove(&key);
+                }
+
+                for (short_name, _local_path) in custom_code_files {
+                    trace!(file = %short_name, "Native library not found in target architecture; silently skipping injection");
+                }
+            }
         } else {
-            for zip_path in discovered_libnative_zip_paths {
-                trace!(file = %zip_path, "Overwriting exact zip path with modded native library");
-                inject_local_file(lib_path, &zip_path, true)?;
+            debug!("Injecting modded native code payloads...");
+
+            let mut successfully_injected_keys = HashSet::new();
+
+            for (zip_path, short_name) in discovered_code_zip_paths {
+                if let Some(local_path) = custom_code_files.get(&short_name) {
+                    trace!(file = %zip_path, "Overwriting exact zip path with modded native library");
+                    inject_local_file(local_path, &zip_path, true)?;
+                    successfully_injected_keys.insert(short_name.clone());
+                }
+            }
+
+            for key in successfully_injected_keys {
+                custom_code_files.remove(&key);
+            }
+
+            let target_architectures = ["x86_64"];
+
+            for (short_name, local_path) in custom_code_files {
+                for architecture in target_architectures {
+                    let fallback_path = format!("lib/{architecture}/{short_name}");
+                    trace!(file = %fallback_path, "No vanilla binary found in root sweep, using fallback structural path");
+                    inject_local_file(&local_path, &fallback_path, true)?;
+                }
             }
         }
     }
@@ -540,7 +607,7 @@ pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_ref
         let internal_file_name = inner_archive_file.name().to_string();
         let internal_file_extension = Path::new(&internal_file_name)
             .extension()
-            .and_then(|ext| ext.to_str())
+            .and_then(|extension| extension.to_str())
             .unwrap_or("");
 
         let requires_forced_store = uncompressed_extension_overrides.contains(&internal_file_extension);
