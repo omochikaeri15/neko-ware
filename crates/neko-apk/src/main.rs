@@ -7,7 +7,7 @@ pub mod workspace;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use colored::Colorize;
-use config::AppConfig;
+use config::{AppConfig, OutputBehavior};
 use keys::UserKeys;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
@@ -47,7 +47,7 @@ pub struct PatchArgs {
     pub package_suffix: Option<String>,
     #[arg(short = 'r', long = "region", help = "Override target region (JP, EN, TW, KR)")]
     pub region: Option<String>,
-    #[arg(short = 'f', long = "force", help = "Force 'update' (u) or 'create' (c) action")]
+    #[arg(short = 'f', long = "force", help = "Force 'update' (u), 'create' (c), or 'automatic' (a) action")]
     pub force_action: Option<String>,
     #[arg(short = 'm', long = "pem", help = "Override default PEM identity file")]
     pub pem_file: Option<String>,
@@ -227,19 +227,27 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
     }
 
     let final_force_action = args.force_action.map(|action_string| action_string.to_lowercase());
-    if let Some(ref selected_action) = final_force_action
-        && !["update", "u", "create", "c"].contains(&selected_action.as_str())
-    {
-        if show_ui {
-            println!(
-                "\n  {} Invalid Force Flag: '{}' Must be 'update' (u) or 'create' (c)\n",
-                "✗".red(),
-                selected_action.cyan()
-            );
+
+    let final_behavior = if let Some(ref selected_action) = final_force_action {
+        match selected_action.as_str() {
+            "update" | "u" => OutputBehavior::Replace,
+            "create" | "c" => OutputBehavior::Create,
+            "automatic" | "auto" | "a" => OutputBehavior::Automatic,
+            _ => {
+                if show_ui {
+                    println!(
+                        "\n  {} Invalid Force Flag: '{}' Must be 'update' (u), 'create' (c) or 'automatic' (a)\n",
+                        "✗".red(),
+                        selected_action.cyan()
+                    );
+                }
+                tracing::error!(flag = %selected_action, "Invalid force flag provided");
+                return;
+            }
         }
-        tracing::error!(flag = %selected_action, "Invalid force flag provided");
-        return;
-    }
+    } else {
+        base_config.output_behavior
+    };
 
     let resolved_apk_path = PathBuf::from(&args.apk_path);
     if !resolved_apk_path.exists() {
@@ -260,7 +268,7 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
         target_app_title: final_app_name,
         target_package_suffix: final_package_suffix,
         target_region: final_region,
-        force_action: final_force_action,
+        output_behavior: final_behavior,
         pem_file: final_pem_file,
         target_architecture: final_architecture,
         show_ui,

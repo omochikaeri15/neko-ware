@@ -4,6 +4,20 @@ use serde::{Deserialize, Serialize};
 use std::io::{Write, stdin, stdout};
 use tracing::{error, info};
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputBehavior {
+    Automatic,
+    Replace,
+    Create,
+}
+
+impl Default for OutputBehavior {
+    fn default() -> Self {
+        Self::Create
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AppConfig {
     pub app_name: String,
@@ -16,6 +30,7 @@ pub struct AppConfig {
     pub code_dir: String,
     pub output_dir: String,
     pub pem_file: Option<String>,
+    pub output_behavior: OutputBehavior,
 }
 
 impl Default for AppConfig {
@@ -31,6 +46,7 @@ impl Default for AppConfig {
             code_dir: String::from("mod/code"),
             output_dir: String::from("apk"),
             pem_file: None,
+            output_behavior: OutputBehavior::default(),
         }
     }
 }
@@ -110,6 +126,20 @@ impl AppConfig {
             _ => println!("{}", "Invalid choice. Keeping current architecture.".red()),
         }
 
+        println!("\nSelect Output Behavior:");
+        println!("1. Create (always create a new APK in output dir)");
+        println!("2. Replace (always overwrite original APK)");
+        println!("3. Automatic (scan APK identity to determine action)");
+        let behavior_selection = request_user_input("Choice (1-3) [leave blank to skip]: ");
+
+        match behavior_selection.as_str() {
+            "1" => active_config.output_behavior = OutputBehavior::Create,
+            "2" => active_config.output_behavior = OutputBehavior::Replace,
+            "3" => active_config.output_behavior = OutputBehavior::Automatic,
+            "" => {}
+            _ => println!("{}", "Invalid choice. Keeping current output behavior.".red()),
+        }
+
         let patch_input = request_user_input("\nEnter Patch Directory: ");
         if !patch_input.is_empty() {
             active_config.patch_dir = patch_input;
@@ -125,16 +155,16 @@ impl AppConfig {
             active_config.icons_dir = icons_input;
         }
 
+        let output_input = request_user_input("Enter Output Directory: ");
+        if !output_input.is_empty() {
+            active_config.output_dir = output_input;
+        }
+
         let code_input = request_user_input("Enter Code Directory: ");
         if !code_input.is_empty() {
             active_config.code_dir = code_input;
         }
 
-        let output_input = request_user_input("Enter Output Directory: ");
-        if !output_input.is_empty() {
-            active_config.output_dir = output_input;
-        }
-        
         let pem_input = request_user_input("Enter custom PEM identity file: ");
         if !pem_input.is_empty() {
             active_config.pem_file = Some(pem_input);

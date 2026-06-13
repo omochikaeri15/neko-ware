@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
 
+use crate::config::OutputBehavior;
 use crate::keys::UserKeys;
 use crate::patch::modify;
 use crate::patch::pack;
@@ -19,7 +20,7 @@ pub struct PatchConfig {
     pub target_app_title: String,
     pub target_package_suffix: String,
     pub target_region: String,
-    pub force_action: Option<String>,
+    pub output_behavior: OutputBehavior,
     pub pem_file: Option<String>,
     pub target_architecture: Option<String>,
     pub show_ui: bool,
@@ -137,26 +138,26 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         })?;
 
     let target_package_full = format!("jp.co.ponos.battlecats{}", config.target_package_suffix.trim());
-    let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
-
-    let is_update = match config.force_action.as_deref() {
-        Some("update" | "u") => true,
-        Some("create" | "c") => false,
-        _ => current_package == target_package_full,
-    };
 
     println!();
-    if config.force_action.is_some() {
-        if config.show_ui {
-            println!("  {} Bypassed identity check via {} flag", "!".yellow(), "force".cyan());
+    let is_update = match config.output_behavior {
+        OutputBehavior::Replace => {
+            warn!("Bypassed identity check (Forced Update)");
+            true
         }
-        warn!("Bypassed identity check via force flag");
-    } else {
-        if config.show_ui {
-            println!("  {} Analyzed APK identity", "✓".green());
+        OutputBehavior::Create => {
+            warn!("Bypassed identity check (Forced Create)");
+            false
         }
-        info!("Analyzed APK identity");
-    }
+        OutputBehavior::Automatic => {
+            let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
+            if config.show_ui {
+                println!("  {} Analyzed APK identity", "✓".green());
+            }
+            info!("Analyzed APK identity");
+            current_package == target_package_full
+        }
+    };
 
     if !is_update {
         debug!("Applying XML modifications and patching manifest");

@@ -6,8 +6,6 @@ Here is how to utilize the default workspace to create patched APKs:
 * `mod/icons/`: Custom `icon.png`, `icon_foreground.png`, and `push_icon.png` app assets go here
 * `mod/code/`: Modified `lib{}.so` code goes here, make sure to set an architecture in the config or else it will skip these files
 
-APKs with differing App or Package names will be Created in the `apk` directory, with the original APK staying in-tact
-
-APKs that have the same App and Package name as their input will overwrite the original input APK upon creation
+APKs  will be Created in the `apk` directory, with the original APK staying in-tact
 
 If you dislike the workflow, binary behavior, or are looking for additional options, you may change the config or use flags within the command-line
