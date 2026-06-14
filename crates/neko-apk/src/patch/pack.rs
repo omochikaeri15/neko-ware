@@ -3,7 +3,7 @@ use nyanko::pack::cryptology;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use tracing::{debug, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub fn stream_pack_and_list(
     source_directory: &Path,
@@ -11,6 +11,7 @@ pub fn stream_pack_and_list(
     target_pack_name: &str,
     region_cryptology_key: &RegionKey,
 ) -> Result<usize, String> {
+    debug!("Scanning source directory for pack: {:?}", source_directory);
     let mut valid_files_with_sizes = Vec::new();
 
     if let Ok(directory_entries) = fs::read_dir(source_directory) {
@@ -26,6 +27,7 @@ pub fn stream_pack_and_list(
 
     let total_files_count = valid_files_with_sizes.len();
     if total_files_count == 0 {
+        warn!("No files found in the patch directory.");
         return Ok(0);
     }
 
@@ -38,13 +40,18 @@ pub fn stream_pack_and_list(
         cryptology::PackType::Standard
     };
 
+    trace!("Determined pack type: {:?}", resolved_pack_type);
+    info!("Found {} files to patch.", total_files_count);
+
     let parsed_standard_keys = if resolved_pack_type == cryptology::PackType::Standard {
+        trace!("Decoding hex standard keys...");
         let decoded_key_bytes =
             hex::decode(&region_cryptology_key.key).map_err(|_| "Invalid Region Key Hex".to_string())?;
         let decoded_iv_bytes =
             hex::decode(&region_cryptology_key.iv).map_err(|_| "Invalid Region IV Hex".to_string())?;
 
         if decoded_key_bytes.len() != 16 || decoded_iv_bytes.len() != 16 {
+            error!("Region Key/IV length is incorrect: key {}, iv {}", decoded_key_bytes.len(), decoded_iv_bytes.len());
             return Err("Region Key/IV length is incorrect Ensure they are 32 hex characters".to_string());
         }
 
@@ -66,6 +73,7 @@ pub fn stream_pack_and_list(
     let mut cumulative_list_string = format!("{total_files_count}\n");
     let mut current_byte_address = 0;
 
+    debug!("Beginning stream write sequence...");
     for (active_file_path, _file_size) in valid_files_with_sizes.iter() {
         let extracted_filename = active_file_path
             .file_name()
@@ -103,11 +111,13 @@ pub fn stream_pack_and_list(
         .map_err(|error| format!("Failed to flush pack stream to disk: {error}"))?;
     debug!("Successfully flushed multi-gigabyte pack stream buffer to physical disk");
 
+    trace!("Encrypting and saving list metadata.");
     let encrypted_list_bytes = cryptology::encrypt_list(&cumulative_list_string)
         .map_err(|error| format!("Failed to encrypt list file: {error}"))?;
 
     fs::write(list_output_path, encrypted_list_bytes)
         .map_err(|error| format!("Failed to write list file: {error}"))?;
 
+    info!("Pack stream and list generation complete.");
     Ok(total_files_count)
 }

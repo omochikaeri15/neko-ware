@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use zip::ZipArchive;
 
 use crate::config::OutputBehavior;
@@ -31,6 +31,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     debug!(target = %config.input_apk_path.display(), "Initiating APK mod cycle");
 
     let has_direct_files = |dir: &PathBuf| -> bool {
+        trace!(dir = %dir.display(), "Checking directory for files");
         if !dir.exists() {
             return false;
         }
@@ -38,6 +39,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {
                     if file_type.is_file() {
+                        trace!(dir = %dir.display(), "Found valid file in directory");
                         return true;
                     }
                 }
@@ -59,6 +61,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         return Err(msg.to_string());
     }
 
+    trace!("Loading user keys...");
     let current_keys = UserKeys::load();
     let valid_region_key = current_keys
         .get_validated_region_key(&config.target_region)
@@ -70,13 +73,10 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
             err
         })?;
 
+    trace!("Setting up application directories...");
     let application_directory = PathBuf::from("app");
     let temporary_binary_directory = application_directory.join("binaries");
     let temporary_assets_directory = application_directory.join("assets");
-
-    let _removal_result = fs::remove_dir_all(&application_directory);
-    let _creation_result = fs::create_dir_all(&temporary_binary_directory);
-    let _creation_result = fs::create_dir_all(&temporary_assets_directory);
 
     let source_apk_file = fs::File::open(&config.input_apk_path).map_err(|err| {
         let out = format!("Failed to open APK: {err}");
@@ -113,11 +113,13 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
             let mut output_manifest_file =
                 fs::File::create(&manifest_extraction_path).map_err(|err| err.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_manifest_file);
+            trace!("Extracted AndroidManifest.xml");
         } else if inner_file_name == "resources.arsc" {
             let mut output_resource_file =
                 fs::File::create(&resource_extraction_path).map_err(|err| err.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_resource_file);
             extracted_resource_table = true;
+            trace!("Extracted resources.arsc");
         }
     }
     drop(zip_archive);
@@ -128,6 +130,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         None
     };
 
+    trace!("Initializing ApkEditor...");
     let mut apk_manifest_editor = modify::ApkEditor::from_paths(&manifest_extraction_path, optional_resource_path)
         .map_err(|err| {
             let out = format!("Failed to parse APK binaries: {err}");
@@ -152,6 +155,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         }
         OutputBehavior::Automatic => {
             let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
+            trace!(current = %current_package, target = %target_package_full, "Comparing package identities");
             if config.show_ui {
                 println!("  {} Analyzed APK identity", "✓".green());
             }
@@ -173,6 +177,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
                 out
             })?;
 
+        trace!("Saving modified manifest/resources...");
         apk_manifest_editor
             .save_to_paths(&manifest_extraction_path, optional_resource_path)
             .map_err(|err| {
@@ -215,6 +220,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     let unsigned_apk_path = application_directory.join("unsigned_final.apk");
 
     debug!("Injecting modifications into unaligned APK clone");
+    trace!("Starting injection and build process...");
     let injected_file_count = modify::inject_and_build_apk(
         &config.input_apk_path,
         &unsigned_apk_path,
@@ -257,6 +263,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
 
     let normalized_apk_path = application_directory.join("normalized_final.apk");
     debug!("Normalizing structural zip alignment");
+    trace!("Starting APK normalization...");
     modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, &config.input_apk_path).map_err(|err| {
         if config.show_ui {
             println!("  {} ERROR: {err}", "✗".red());
@@ -271,6 +278,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     info!("Successfully restored storage alignment semantics");
 
     debug!("Executing cryptographic signature schema");
+    trace!("Starting APK signing...");
     sign::sign_apk_file(&normalized_apk_path, config.pem_file.clone()).map_err(|err| {
         let out = err.to_string();
         if config.show_ui {
@@ -301,9 +309,11 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         let mut chosen_filename = format!("{base_title}.apk");
 
         if config.output_directory_path.join(&chosen_filename).exists() {
+            trace!(filename = %chosen_filename, "Filename exists, searching for alternative...");
             let mut file_index = 1;
             loop {
                 let candidate_name = format!("{base_title}{file_index}.apk");
+                trace!(candidate = %candidate_name, "Testing candidate filename");
                 if !config.output_directory_path.join(&candidate_name).exists() {
                     chosen_filename = candidate_name;
                     break;
@@ -318,6 +328,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         )
     };
 
+    trace!(destination = %destination_file_path.display(), "Copying final APK");
     fs::copy(&normalized_apk_path, &destination_file_path).map_err(|err| {
         let out = format!("Failed to copy to output target: {err}");
         if config.show_ui {
@@ -327,6 +338,7 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         out
     })?;
 
+    trace!("Cleaning up temporary application directory...");
     let _cleanup_result = fs::remove_dir_all(&application_directory);
 
     let output_display_name = destination_file_path
