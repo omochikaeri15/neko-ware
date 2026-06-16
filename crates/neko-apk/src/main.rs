@@ -297,11 +297,11 @@ fn handle_patch_command(args: PatchArgs, show_ui: bool) {
             }
             tracing::info!(action = %action_verb, file = %output_filename, "APK Patching complete");
         }
-        Err(_) => {
+        Err(err) => {
             if show_ui {
                 println!("\nFAILURE: Couldnt mod APK!\n");
             }
-            tracing::error!("Failed to mod APK");
+            tracing::error!(error = %err, "Failed to mod APK");
             std::process::exit(1);
         }
     }

@@ -78,6 +78,9 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     let temporary_binary_directory = application_directory.join("binaries");
     let temporary_assets_directory = application_directory.join("assets");
 
+    std::fs::create_dir_all(&temporary_binary_directory).map_err(|err| err.to_string())?;
+    std::fs::create_dir_all(&temporary_assets_directory).map_err(|err| err.to_string())?;
+
     let source_apk_file = fs::File::open(&config.input_apk_path).map_err(|err| {
         let out = format!("Failed to open APK: {err}");
         if config.show_ui {
