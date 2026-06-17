@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "neko-apk"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "neko-cloud"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "byteorder",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "neko-pack"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "colored",
