@@ -49,7 +49,7 @@ async fn scan_for_valid_urls(
         }
 
         if show_ui {
-            println!("    {} Found versions target payload at Index {:02}", "✓".green(), index);
+            println!("    {} Found asset payload at Index {:02}", "✓".green(), index);
         }
 
         info!(index, version = target_version, "Valid update payload found");
@@ -119,23 +119,10 @@ pub async fn execute_download_pipeline(
     if show_ui {
         println!();
 
-        let trigger_warning = match &payload_targets {
-            Some(targets) => targets.iter().any(|&v| v >= 14_070_000),
-            None => target_version >= 14_070_000,
-        };
-
-        if trigger_warning {
-            let orange_excl = "!".truecolor(255, 165, 0);
-            println!("{} WARNING, PLEASE READ CAREFULLY:", orange_excl);
-            println!("{} Game devs have switched to a new update serving system for version 14.7+", orange_excl);
-            println!("{} Newer updates may have to be obtained from the games {} split", orange_excl, "InstallPack.apk".cyan());
-            println!("{} Expect web requests for newer versions to fail or yield incorrect/old assets\n", orange_excl);
-        }
-
         if payload_targets.is_some() {
-            println!("  {} Scanning code for payloads to download from server...", "⟳".cyan());
+            println!("  {} Scanning code for payloads to download...", "⟳".cyan());
         } else {
-            println!("  {} Scanning server for targeted versions payloads...", "⟳".cyan());
+            println!("  {} Scanning server for targeted payload files...", "⟳".cyan());
         }
     }
 
@@ -192,7 +179,7 @@ pub async fn execute_download_pipeline(
 
     if valid_urls.is_empty() {
         if show_ui {
-            println!("\nFAILURE: Found no payloads for targeted version!\n");
+            println!("\nFAILURE: Found no payloads for targeted input!\n");
         }
         return Ok(());
     }

@@ -1,9 +1,9 @@
 ## Neko-Cloud
 **COMMAND:** `neko-cloud`
 
-**NOTICE:** The developers of this game have switched to a new `InstallPack.apk` split update serving system. Payloads targeted at updates 14.7 or later may be missing assets, contain incorrect assets, or could be missing entirely.
+**NOTICE:** Recent updates are not served through the server, they are instead hosted within the games `InstallPack.apk` split before they are later moved to the server.
 
-Lets you pull version-specific game assets directly from the games cloud service. Target a specific version and region to pull from. Input an `x86_64` architecture `libnative-lib.so` or `.apk` to skip the version targeting entirely.
+Lets you pull game assets directly from the games cloud service given the payloads time stamp. Input an `x86_64` architecture `libnative-lib.so` or `.apk` to skip the version targeting entirely.
 
 ### DISCLAIMER
 

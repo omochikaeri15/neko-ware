@@ -13,12 +13,6 @@ use tracing_subscriber::fmt;
 #[derive(Parser)]
 #[command(name = "neko-cloud", version, about = "Battle Cats Server Fetcher", long_about = None)]
 struct Cli {
-    #[arg(short = 'u', long = "update", global = true, value_name = "VERSION", help = "Target game version to fetch server payloads for")]
-    update: Option<String>,
-
-    #[arg(short = 'g', long = "game", global = true, value_name = "PATH", help = "Path to apk or libnative-lib.so to scan for payload indices")]
-    game: Option<String>,
-
     #[arg(short, long, global = true, help = "Enable verbose debug logging")]
     verbose: bool,
 
@@ -49,29 +43,25 @@ enum Commands {
         #[command(subcommand)]
         action: IdentityAction,
     },
-    #[command(about = "Fetch server payloads or scan game binaries")]
+    #[command(about = "Execute download pipelines against game servers")]
     Fetch {
-        #[arg(
-            short = 'u',
-            long = "update",
-            value_name = "VERSION",
-            required_unless_present = "game",
-            help = "Target game version to fetch server payloads for"
-        )]
-        update: Option<String>,
+        #[command(subcommand)]
+        action: FetchAction,
+    },
+}
 
+#[derive(Subcommand)]
+enum FetchAction {
+    #[command(about = "Target the cloud asset server for raw payload files")]
+    Payload {
         #[arg(
-            short = 'g',
-            long = "game",
-            value_name = "PATH",
-            help = "Path to game binary to scan for payload indices"
+            help = "Target payload timestamp string or path to game binary"
         )]
-        game: Option<String>,
+        input: String,
 
         #[arg(
             short = 'r',
             long = "region",
-            value_name = "REGION",
             default_value = "en",
             help = "Target game region code (en, jp, kr, tw)"
         )]
@@ -141,13 +131,17 @@ async fn main() {
         Some(Commands::Workspace { action }) => handle_workspace_command(action, show_ui),
         Some(Commands::Config { action }) => handle_config_command(action, show_ui),
         Some(Commands::Identity { action }) => handle_identity_command(action, show_ui),
-        Some(Commands::Fetch { update, region, game }) => {
-            if let Err(error) = fetch::execute::execute_fetch(update.as_deref(), &region, game.as_deref(), show_ui).await {
-                tracing::error!(error = %error, "Fetch operation failed");
-                if show_ui {
-                    println!("\n  {} Fetch failed: {}\n", "✗".red(), error);
+        Some(Commands::Fetch { action }) => {
+            match action {
+                FetchAction::Payload { input, region } => {
+                    if let Err(error) = fetch::execute::execute_fetch(&input, &region, show_ui).await {
+                        tracing::error!(error = %error, "Fetch operation failed");
+                        if show_ui {
+                            println!("\n  {} Fetch failed: {}\n", "✗".red(), error);
+                        }
+                        std::process::exit(1);
+                    }
                 }
-                std::process::exit(1);
             }
         }
         None => handle_fallback_shell(),

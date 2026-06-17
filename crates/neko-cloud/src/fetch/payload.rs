@@ -3,6 +3,47 @@ use std::io::Read;
 use std::path::Path;
 use byteorder::{ByteOrder, LittleEndian};
 
+pub struct RegionProfile {
+    pub project_name: String,
+    pub lang_suffix: String,
+}
+
+pub fn parse_region_string(region_str: &str) -> Result<RegionProfile, Box<dyn std::error::Error>> {
+    let components: Vec<&str> = region_str.split('_').collect();
+
+    if components.is_empty() || components.len() > 2 {
+        return Err("ERROR: Incorrectly formatted region string. Expected format: XX or XX_YY.".into());
+    }
+
+    let base_region = components[0].to_lowercase();
+    if base_region.len() != 2 {
+        return Err("ERROR: Region base must be exactly 2 letters (e.g., 'en', 'jp').".into());
+    }
+
+    let sub_language = if components.len() == 2 {
+        let suffix = components[1].to_lowercase();
+        if suffix.len() != 2 {
+            return Err("ERROR: Region sub-language must be exactly 2 letters (e.g., 'it', 'fr').".into());
+        }
+        format!("_{}", suffix)
+    } else {
+        String::new()
+    };
+
+    let project_name = match base_region.as_str() {
+        "jp" | "ja" => "battlecats",
+        "en" => "battlecatsen",
+        "kr" | "ko" => "battlecatskr",
+        "tw" => "battlecatstw",
+        _ => return Err(format!("ERROR: Unsupported region '{}'. Supported: en, jp/ja, kr/ko, tw.", base_region).into()),
+    };
+
+    Ok(RegionProfile {
+        project_name: String::from(project_name),
+        lang_suffix: sub_language,
+    })
+}
+
 pub fn extract_payload_from_binary(
     path_str: &str,
     region: &str,
