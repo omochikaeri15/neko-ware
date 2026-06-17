@@ -1,43 +1,40 @@
 use crate::config::AppConfig;
-use crate::fetch::api;
+use crate::fetch::{game, update, download};
 use crate::identity::ServerIdentity;
 
-fn parse_version_string(version_str: &str) -> Result<i32, Box<dyn std::error::Error>> {
-    let components: Vec<&str> = version_str.split('.').collect();
-
-    if components.len() < 2 || components.len() > 3 {
-        return Err("ERROR: Incorrectly formatted version string. Expected format: X.Y or X.Y.Z".into());
-    }
-
-    let multipliers = [1_000_000, 10_000, 100];
-    let mut final_version = 0;
-
-    for (index, component) in components.iter().enumerate() {
-        if component.len() > 3 {
-            return Err("ERROR: Incorrectly formatted version string. Components cannot exceed 3 characters.".into());
-        }
-
-        let numeric_value: i32 = component
-            .parse()
-            .map_err(|_| "ERROR: Incorrectly formatted version string. Components must be numbers.")?;
-
-        final_version += numeric_value * multipliers[index];
-    }
-
-    Ok(final_version)
-}
-
-pub async fn execute_fetch(version_input: &str, show_ui: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn execute_fetch(
+    version_input: Option<&str>,
+    region_input: &str,
+    game_path_input: Option<&str>,
+    show_ui: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let identity = ServerIdentity::load();
     let config = AppConfig::load();
 
-    let target_version = parse_version_string(version_input)?;
+    let region_profile = update::parse_region_string(region_input)?;
 
-    if show_ui {
-        println!("Initiating fetch target for validated version code: {}", target_version);
-    }
+    let (target_version, payload_targets) = match game_path_input {
+        Some(path) => {
+            let extracted = game::extract_payload_from_binary(path, region_input)?;
+            (0, Some(extracted))
+        }
+        None => {
+            let ver_str = version_input.ok_or("ERROR: Missing target version. Provide either '--update' or '--game'.")?;
+            let parsed_ver = update::parse_version_string(ver_str)?;
+            (parsed_ver, None)
+        }
+    };
 
-    api::download_target(&identity, &config, target_version, show_ui).await?;
+    download::execute_download_pipeline(
+        &identity,
+        &config,
+        target_version,
+        &region_profile.project_name,
+        &region_profile.lang_suffix,
+        payload_targets,
+        show_ui,
+    )
+        .await?;
 
     Ok(())
 }

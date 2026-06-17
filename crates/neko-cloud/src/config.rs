@@ -15,7 +15,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             output_dir: String::from("files"),
-            search_index_range: Some(String::from("0-350")),
+            search_index_range: Some(String::from("0-50")),
         }
     }
 }

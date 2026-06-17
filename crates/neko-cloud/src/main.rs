@@ -13,52 +13,93 @@ use tracing_subscriber::fmt;
 #[derive(Parser)]
 #[command(name = "neko-cloud", version, about = "Standalone Battle Cats Server Fetcher", long_about = None)]
 struct Cli {
-    #[arg(short, long, global = true)]
+    #[arg(short = 'u', long = "update", global = true, value_name = "VERSION", help = "Target game version to fetch server payloads for")]
+    update: Option<String>,
+
+    #[arg(short = 'g', long = "game", global = true, value_name = "PATH", help = "Path to apk or libnative-lib.so to scan for payload indices")]
+    game: Option<String>,
+
+    #[arg(short, long, global = true, help = "Enable verbose debug logging")]
     verbose: bool,
-    #[arg(short = 't', long, global = true)]
+
+    #[arg(short = 't', long, global = true, help = "Enable execution trace logging")]
     trace: bool,
-    #[arg(short, long, global = true)]
+
+    #[arg(short, long, global = true, help = "Output logs in JSON format")]
     json: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Manage the local application workspace")]
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
     },
+    #[command(about = "Manage application configuration settings")]
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    #[command(alias = "id")]
+    #[command(alias = "id", about = "Manage server identity credentials")]
     Identity {
         #[command(subcommand)]
         action: IdentityAction,
     },
+    #[command(about = "Fetch server payloads or scan game binaries")]
     Fetch {
-        #[arg(short = 'u', long = "update", value_name = "VERSION", required = true)]
-        update: String,
+        #[arg(
+            short = 'u',
+            long = "update",
+            value_name = "VERSION",
+            required_unless_present = "game",
+            help = "Target game version to fetch server payloads for"
+        )]
+        update: Option<String>,
+
+        #[arg(
+            short = 'g',
+            long = "game",
+            value_name = "PATH",
+            help = "Path to game binary to scan for payload indices"
+        )]
+        game: Option<String>,
+
+        #[arg(
+            short = 'r',
+            long = "region",
+            value_name = "REGION",
+            default_value = "en",
+            help = "Target game region code (en, jp, kr, tw)"
+        )]
+        region: String,
     },
 }
 
 #[derive(Subcommand)]
 enum WorkspaceAction {
+    #[command(about = "Initialize a new workspace environment")]
     Init,
+    #[command(about = "Repair a corrupted workspace environment")]
     Repair,
 }
 
 #[derive(Subcommand)]
 enum ConfigAction {
+    #[command(about = "Create a new default configuration file")]
     Create,
+    #[command(about = "Reset the configuration file to default settings")]
     Reset,
 }
 
 #[derive(Subcommand)]
 enum IdentityAction {
+    #[command(about = "Create a new server identity profile")]
     Create,
+    #[command(about = "Reset the server identity profile")]
     Reset,
 }
 
@@ -100,8 +141,8 @@ async fn main() {
         Some(Commands::Workspace { action }) => handle_workspace_command(action, show_ui),
         Some(Commands::Config { action }) => handle_config_command(action, show_ui),
         Some(Commands::Identity { action }) => handle_identity_command(action, show_ui),
-        Some(Commands::Fetch { update }) => {
-            if let Err(error) = fetch::execute::execute_fetch(&update, show_ui).await {
+        Some(Commands::Fetch { update, region, game }) => {
+            if let Err(error) = fetch::execute::execute_fetch(update.as_deref(), &region, game.as_deref(), show_ui).await {
                 tracing::error!(error = %error, "Fetch operation failed");
                 if show_ui {
                     println!("\n  {} Fetch failed: {}\n", "✗".red(), error);
