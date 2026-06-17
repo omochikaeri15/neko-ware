@@ -12,7 +12,7 @@ use tracing::{Level, error};
 use tracing_subscriber::fmt;
 
 #[derive(Parser)]
-#[command(name = "neko-pack", version, about = "Standalone Battle Cats Pack Utility", long_about = None)]
+#[command(name = "neko-pack", version, about = "Battle Cats Pack Decryptor", long_about = None)]
 struct Cli {
     #[arg(short, long, global = true, help = "Enable verbose debug logging")]
     verbose: bool,

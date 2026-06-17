@@ -74,7 +74,7 @@ impl AppConfig {
     }
 
     pub fn repair(_show_ui: bool) {
-        let config_path = crate::io::get_local_dir().join("config.json");
+        let config_path = crate::io::get_exe_dir().join("config.json");
         if !config_path.exists() {
             Self::default().save();
             debug!("Config missing entirely. Recreated with defaults.");

@@ -65,7 +65,7 @@ impl AppConfig {
     }
 
     pub fn repair(show_ui: bool) {
-        let config_path = crate::io::get_local_dir().join("config.json");
+        let config_path = crate::io::get_exe_dir().join("config.json");
         let default_config = Self::default();
         let mut repaired = false;
 

@@ -11,7 +11,7 @@ use tracing::Level;
 use tracing_subscriber::fmt;
 
 #[derive(Parser)]
-#[command(name = "neko-cloud", version, about = "Standalone Battle Cats Server Fetcher", long_about = None)]
+#[command(name = "neko-cloud", version, about = "Battle Cats Server Fetcher", long_about = None)]
 struct Cli {
     #[arg(short = 'u', long = "update", global = true, value_name = "VERSION", help = "Target game version to fetch server payloads for")]
     update: Option<String>,

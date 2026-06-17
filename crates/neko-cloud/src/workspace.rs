@@ -3,6 +3,7 @@ use crate::identity::ServerIdentity;
 use crate::io::get_local_dir;
 use std::fs;
 use tracing::debug;
+use colored::Colorize;
 
 pub fn init(show_ui: bool) -> std::io::Result<()> {
     debug!("Initializing default workspace configurations...");
@@ -21,7 +22,7 @@ pub fn init(show_ui: bool) -> std::io::Result<()> {
     }
 
     if show_ui {
-        println!("\n  ✓ Workspace initialized, Created config files and directories\n");
+        println!("\n  {} Workspace initialized, Created config files and directories\n", "✓".green());
     }
 
     Ok(())
