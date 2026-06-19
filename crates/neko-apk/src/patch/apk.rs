@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use zip::ZipArchive;
 
 use crate::config::OutputBehavior;
