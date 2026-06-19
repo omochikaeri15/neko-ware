@@ -145,29 +145,19 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         })?;
 
     let target_package_full = format!("jp.co.ponos.battlecats{}", config.target_package_suffix.trim());
+    let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
 
     println!();
-    let is_update = match config.output_behavior {
-        OutputBehavior::Replace => {
-            warn!("Bypassed identity check (Forced Update)");
-            true
-        }
-        OutputBehavior::Create => {
-            warn!("Bypassed identity check (Forced Create)");
-            false
-        }
-        OutputBehavior::Automatic => {
-            let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
-            trace!(current = %current_package, target = %target_package_full, "Comparing package identities");
-            if config.show_ui {
-                println!("  {} Analyzed APK identity", "✓".green());
-            }
-            info!("Analyzed APK identity");
-            current_package == target_package_full
-        }
-    };
+    trace!(current = %current_package, target = %target_package_full, "Comparing package identities");
 
-    if !is_update {
+    let is_update_patch = current_package == target_package_full;
+
+    if config.show_ui {
+        println!("  {} Analyzed APK identity", "✓".green());
+    }
+    info!("Analyzed APK identity");
+
+    if !is_update_patch {
         debug!("Applying XML modifications and patching manifest");
         apk_manifest_editor
             .apply_patches(&config.target_package_suffix, &config.target_app_title)
@@ -191,6 +181,8 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
                 error!(error = %err, "Failed to save patched binaries");
                 out
             })?;
+    } else {
+        debug!("Package identity matches target. Skipping manifest modifications.");
     }
 
     debug!("Compressing user modifications into DownloadLocal pack stream");
@@ -231,16 +223,8 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         &config.icons_directory,
         &config.loose_directory,
         &config.code_directory,
-        if is_update {
-            None
-        } else {
-            Some(manifest_extraction_path.as_path())
-        },
-        if is_update || !extracted_resource_table {
-            None
-        } else {
-            Some(resource_extraction_path.as_path())
-        },
+        if is_update_patch { None } else { Some(manifest_extraction_path.as_path()) },
+        if is_update_patch || !extracted_resource_table { None } else { Some(resource_extraction_path.as_path()) },
         config.target_architecture.as_deref(),
         config.force_inject.as_deref(),
         config.show_ui,
@@ -296,39 +280,44 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     }
     info!("Successfully signed binary");
 
-    let (action_verb, destination_file_path) = if is_update {
-        ("Updated".to_string(), config.input_apk_path.to_path_buf())
-    } else {
-        let _ = fs::create_dir_all(&config.output_directory_path);
-
-        let sanitized_title = config.target_app_title.trim().replace(['\\', '/'], "_");
-
-        let base_title = if sanitized_title.is_empty() {
-            "modded_aligned".to_string()
-        } else {
-            sanitized_title
-        };
-
-        let mut chosen_filename = format!("{base_title}.apk");
-
-        if config.output_directory_path.join(&chosen_filename).exists() {
+    let get_incremental_path = |dir: &PathBuf, base_name: &str| -> PathBuf {
+        let mut chosen_filename = format!("{}.apk", base_name);
+        if dir.join(&chosen_filename).exists() {
             trace!(filename = %chosen_filename, "Filename exists, searching for alternative...");
             let mut file_index = 1;
             loop {
-                let candidate_name = format!("{base_title}{file_index}.apk");
+                let candidate_name = format!("{}{}.apk", base_name, file_index);
                 trace!(candidate = %candidate_name, "Testing candidate filename");
-                if !config.output_directory_path.join(&candidate_name).exists() {
+                if !dir.join(&candidate_name).exists() {
                     chosen_filename = candidate_name;
                     break;
                 }
                 file_index += 1;
             }
         }
+        dir.join(chosen_filename)
+    };
 
-        (
-            "Created".to_string(),
-            config.output_directory_path.join(chosen_filename),
-        )
+    let (action_verb, destination_file_path) = match config.output_behavior {
+        OutputBehavior::Replace => {
+            ("Updated".to_string(), config.input_apk_path.to_path_buf())
+        },
+        OutputBehavior::Create => {
+            let sanitized_title = config.target_app_title.trim().replace(['\\', '/'], "_");
+            let base_title = if sanitized_title.is_empty() { "modded_aligned" } else { &sanitized_title };
+            let _ = fs::create_dir_all(&config.output_directory_path);
+            ("Created".to_string(), get_incremental_path(&config.output_directory_path, base_title))
+        },
+        OutputBehavior::Automatic => {
+            if is_update_patch {
+                ("Updated".to_string(), config.input_apk_path.to_path_buf())
+            } else {
+                let sanitized_title = config.target_app_title.trim().replace(['\\', '/'], "_");
+                let base_title = if sanitized_title.is_empty() { "modded_aligned" } else { &sanitized_title };
+                let _ = fs::create_dir_all(&config.output_directory_path);
+                ("Created".to_string(), get_incremental_path(&config.output_directory_path, base_title))
+            }
+        }
     };
 
     trace!(destination = %destination_file_path.display(), "Copying final APK");
