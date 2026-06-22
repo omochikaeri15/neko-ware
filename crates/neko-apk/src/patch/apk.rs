@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, instrument, trace};
 use zip::ZipArchive;
 
 use crate::config::OutputBehavior;
@@ -27,22 +27,28 @@ pub struct PatchConfig {
     pub show_ui: bool,
 }
 
+#[instrument(skip_all, fields(target_apk = %config.input_apk_path.display(), region = %config.target_region))]
 pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
-    debug!(target = %config.input_apk_path.display(), "Initiating APK mod cycle");
+    debug!("Initiating APK mod cycle");
 
-    let has_direct_files = |dir: &PathBuf| -> bool {
-        trace!(dir = %dir.display(), "Checking directory for files");
-        if !dir.exists() {
+    let has_direct_files = |directory_path: &PathBuf| -> bool {
+        trace!(dir = %directory_path.display(), "Checking directory for files");
+        if !directory_path.exists() {
             return false;
         }
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() {
-                        trace!(dir = %dir.display(), "Found valid file in directory");
-                        return true;
-                    }
-                }
+
+        let Ok(directory_entries) = fs::read_dir(directory_path) else {
+            return false;
+        };
+
+        for directory_entry in directory_entries.flatten() {
+            let Ok(file_type) = directory_entry.file_type() else {
+                continue;
+            };
+
+            if file_type.is_file() {
+                trace!(dir = %directory_path.display(), "Found valid file in directory");
+                return true;
             }
         }
         false
@@ -53,24 +59,24 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         && !has_direct_files(&config.loose_directory)
         && !has_direct_files(&config.code_directory)
     {
-        let msg = "Found no files to patch";
+        let error_message = "Found no files to patch";
         if config.show_ui {
-            println!("\n  {} ERROR: {msg}", "✗".red());
+            println!("\n  {} ERROR: {error_message}", "✗".red());
         }
-        error!("{msg}");
-        return Err(msg.to_string());
+        error!("{error_message}");
+        return Err(error_message.to_string());
     }
 
     trace!("Loading user keys...");
     let current_keys = UserKeys::load();
     let valid_region_key = current_keys
         .get_validated_region_key(&config.target_region)
-        .map_err(|err| {
+        .map_err(|error| {
             if config.show_ui {
-                println!("\n  {} ERROR: {err}", "✗".red());
+                println!("\n  {} ERROR: {error}", "✗".red());
             }
-            error!(error = %err, "Failed to retrieve validated region key");
-            err
+            error!(error = %error, "Failed to retrieve validated region key");
+            error
         })?;
 
     trace!("Setting up application directories...");
@@ -78,25 +84,25 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     let temporary_binary_directory = application_directory.join("binaries");
     let temporary_assets_directory = application_directory.join("assets");
 
-    std::fs::create_dir_all(&temporary_binary_directory).map_err(|err| err.to_string())?;
-    std::fs::create_dir_all(&temporary_assets_directory).map_err(|err| err.to_string())?;
+    fs::create_dir_all(&temporary_binary_directory).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&temporary_assets_directory).map_err(|error| error.to_string())?;
 
-    let source_apk_file = fs::File::open(&config.input_apk_path).map_err(|err| {
-        let out = format!("Failed to open APK: {err}");
+    let source_apk_file = fs::File::open(&config.input_apk_path).map_err(|error| {
+        let error_output = format!("Failed to open APK: {error}");
         if config.show_ui {
-            println!("\n  {} ERROR: {out}", "✗".red());
+            println!("\n  {} ERROR: {error_output}", "✗".red());
         }
-        error!(error = %err, "Failed to open source APK file");
-        out
+        error!(error = %error, "Failed to open source APK file");
+        error_output
     })?;
 
-    let mut zip_archive = ZipArchive::new(source_apk_file).map_err(|err| {
-        let out = format!("Failed to read APK archive: {err}");
+    let mut zip_archive = ZipArchive::new(source_apk_file).map_err(|error| {
+        let error_output = format!("Failed to read APK archive: {error}");
         if config.show_ui {
-            println!("\n  {} ERROR: {out}", "✗".red());
+            println!("\n  {} ERROR: {error_output}", "✗".red());
         }
-        error!(error = %err, "Failed to read APK archive");
-        out
+        error!(error = %error, "Failed to read APK archive");
+        error_output
     })?;
 
     let manifest_extraction_path = temporary_binary_directory.join("AndroidManifest.xml");
@@ -114,12 +120,12 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
 
         if inner_file_name == "AndroidManifest.xml" {
             let mut output_manifest_file =
-                fs::File::create(&manifest_extraction_path).map_err(|err| err.to_string())?;
+                fs::File::create(&manifest_extraction_path).map_err(|error| error.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_manifest_file);
             trace!("Extracted AndroidManifest.xml");
         } else if inner_file_name == "resources.arsc" {
             let mut output_resource_file =
-                fs::File::create(&resource_extraction_path).map_err(|err| err.to_string())?;
+                fs::File::create(&resource_extraction_path).map_err(|error| error.to_string())?;
             let _copy_result = std::io::copy(&mut inner_file, &mut output_resource_file);
             extracted_resource_table = true;
             trace!("Extracted resources.arsc");
@@ -135,14 +141,16 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
 
     trace!("Initializing ApkEditor...");
     let mut apk_manifest_editor = modify::ApkEditor::from_paths(&manifest_extraction_path, optional_resource_path)
-        .map_err(|err| {
-            let out = format!("Failed to parse APK binaries: {err}");
+        .map_err(|error| {
+            let error_output = format!("Failed to parse APK binaries: {error}");
             if config.show_ui {
-                println!("\n  {} ERROR: {out}", "✗".red());
+                println!("\n  {} ERROR: {error_output}", "✗".red());
             }
-            error!(error = %err, "Failed to parse APK binaries");
-            out
+            error!(error = %error, "Failed to parse APK binaries");
+            error_output
         })?;
+
+    let apk_version_info = apk_manifest_editor.get_version_info();
 
     let target_package_full = format!("jp.co.ponos.battlecats{}", config.target_package_suffix.trim());
     let current_package = apk_manifest_editor.get_current_package().unwrap_or_default();
@@ -161,25 +169,25 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         debug!("Applying XML modifications and patching manifest");
         apk_manifest_editor
             .apply_patches(&config.target_package_suffix, &config.target_app_title)
-            .map_err(|err| {
-                let out = format!("Patch Error: {err}");
+            .map_err(|error| {
+                let error_output = format!("Patch Error: {error}");
                 if config.show_ui {
-                    println!("  {} ERROR: {out}", "✗".red());
+                    println!("  {} ERROR: {error_output}", "✗".red());
                 }
-                error!(error = %err, "Patch application failed");
-                out
+                error!(error = %error, "Patch application failed");
+                error_output
             })?;
 
         trace!("Saving modified manifest/resources...");
         apk_manifest_editor
             .save_to_paths(&manifest_extraction_path, optional_resource_path)
-            .map_err(|err| {
-                let out = format!("Failed to save patched binaries: {err}");
+            .map_err(|error| {
+                let error_output = format!("Failed to save patched binaries: {error}");
                 if config.show_ui {
-                    println!("  {} ERROR: {out}", "✗".red());
+                    println!("  {} ERROR: {error_output}", "✗".red());
                 }
-                error!(error = %err, "Failed to save patched binaries");
-                out
+                error!(error = %error, "Failed to save patched binaries");
+                error_output
             })?;
     } else {
         debug!("Package identity matches target. Skipping manifest modifications.");
@@ -192,12 +200,12 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         "DownloadLocal",
         valid_region_key,
     )
-        .map_err(|err| {
+        .map_err(|error| {
             if config.show_ui {
-                println!("  {} ERROR: {err}", "✗".red());
+                println!("  {} ERROR: {error}", "✗".red());
             }
-            error!(error = %err, "Failed to pack mod files");
-            err
+            error!(error = %error, "Failed to pack mod files");
+            error
         })?;
 
     if config.show_ui {
@@ -229,12 +237,12 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
         config.force_inject.as_deref(),
         config.show_ui,
     )
-        .map_err(|err| {
+        .map_err(|error| {
             if config.show_ui {
-                println!("  {} ERROR: {err}", "✗".red());
+                println!("  {} ERROR: {error}", "✗".red());
             }
-            error!(error = %err, "APK injection and build failed");
-            err.to_string()
+            error!(error = %error, "APK injection and build failed");
+            error.to_string()
         })?;
 
     if config.show_ui {
@@ -251,12 +259,12 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     let normalized_apk_path = application_directory.join("normalized_final.apk");
     debug!("Normalizing structural zip alignment");
     trace!("Starting APK normalization...");
-    modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, &config.input_apk_path).map_err(|err| {
+    modify::normalize_apk(&unsigned_apk_path, &normalized_apk_path, &config.input_apk_path).map_err(|error| {
         if config.show_ui {
-            println!("  {} ERROR: {err}", "✗".red());
+            println!("  {} ERROR: {error}", "✗".red());
         }
-        error!(error = %err, "APK alignment and normalization failed");
-        err.to_string()
+        error!(error = %error, "APK alignment and normalization failed");
+        error.to_string()
     })?;
 
     if config.show_ui {
@@ -266,13 +274,13 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
 
     debug!("Executing cryptographic signature schema");
     trace!("Starting APK signing...");
-    sign::sign_apk_file(&normalized_apk_path, config.pem_file.clone()).map_err(|err| {
-        let out = err.to_string();
+    sign::sign_apk_file(&normalized_apk_path, config.pem_file.clone()).map_err(|error| {
+        let error_output = error.to_string();
         if config.show_ui {
-            println!("  {} ERROR: {out}", "✗".red());
+            println!("  {} ERROR: {error_output}", "✗".red());
         }
-        error!(error = %out, "Cryptographic signing failed");
-        out
+        error!(error = %error_output, "Cryptographic signing failed");
+        error_output
     })?;
 
     if config.show_ui {
@@ -280,22 +288,23 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     }
     info!("Successfully signed binary");
 
-    let get_incremental_path = |dir: &PathBuf, base_name: &str| -> PathBuf {
+    let get_incremental_path = |directory_path: &PathBuf, base_name: &str| -> PathBuf {
         let mut chosen_filename = format!("{}.apk", base_name);
-        if dir.join(&chosen_filename).exists() {
+
+        if directory_path.join(&chosen_filename).exists() {
             trace!(filename = %chosen_filename, "Filename exists, searching for alternative...");
             let mut file_index = 1;
             loop {
                 let candidate_name = format!("{}{}.apk", base_name, file_index);
                 trace!(candidate = %candidate_name, "Testing candidate filename");
-                if !dir.join(&candidate_name).exists() {
+                if !directory_path.join(&candidate_name).exists() {
                     chosen_filename = candidate_name;
                     break;
                 }
                 file_index += 1;
             }
         }
-        dir.join(chosen_filename)
+        directory_path.join(chosen_filename)
     };
 
     let (action_verb, destination_file_path) = match config.output_behavior {
@@ -321,17 +330,28 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     };
 
     trace!(destination = %destination_file_path.display(), "Copying final APK");
-    fs::copy(&normalized_apk_path, &destination_file_path).map_err(|err| {
-        let out = format!("Failed to copy to output target: {err}");
+    fs::copy(&normalized_apk_path, &destination_file_path).map_err(|error| {
+        let error_output = format!("Failed to copy to output target: {error}");
         if config.show_ui {
-            println!("  {} ERROR: {out}", "✗".red());
+            println!("  {} ERROR: {error_output}", "✗".red());
         }
-        error!(error = %err, "Failed to move APK to output location");
-        out
+        error!(error = %error, "Failed to move APK to output location");
+        error_output
     })?;
 
     trace!("Cleaning up temporary application directory...");
     let _cleanup_result = fs::remove_dir_all(&application_directory);
+
+    if config.show_ui {
+        if let Some((version_code, version_name)) = apk_version_info {
+            if version_code <= 1401010 {
+                println!();
+                println!("  {} Legacy game version {version_name} detected", "!".truecolor(255, 165, 0));
+                println!("  {} Legacy versions are known to crash on load", "!".truecolor(255, 165, 0));
+                println!("  {} Please update to a more stable app version", "!".truecolor(255, 165, 0));
+            }
+        }
+    }
 
     let output_display_name = destination_file_path
         .file_name()

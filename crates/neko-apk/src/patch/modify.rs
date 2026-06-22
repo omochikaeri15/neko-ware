@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use zip::{ZipArchive, ZipWriter};
 
 use resand::{
@@ -29,8 +29,9 @@ pub struct ApkEditor {
 }
 
 impl ApkEditor {
+    #[instrument(skip_all, fields(manifest = %manifest_path.display()))]
     pub fn from_paths(manifest_path: &Path, table_path: Option<&Path>) -> Result<Self, ResError> {
-        debug!("Parsing Manifest from {:?}", manifest_path);
+        debug!("Parsing Manifest from paths");
         let mut manifest_file = fs::File::open(manifest_path)?;
         let manifest = XMLTree::read(&mut manifest_file).map_err(|error| {
             error!("Failed to parse Manifest: {}", error);
@@ -60,6 +61,53 @@ impl ApkEditor {
         Ok(Self { manifest, res_table })
     }
 
+    #[instrument(skip_all)]
+    pub fn get_version_info(&self) -> Option<(u32, String)> {
+        trace!("Extracting version information from XML tree");
+        let root_element = self.manifest.root.get_element(&["manifest"], &self.manifest.string_pool)?;
+
+        let version_code_attribute = root_element.get_attribute("versionCode", &self.manifest.string_pool)?;
+        let version_name_attribute = root_element.get_attribute("versionName", &self.manifest.string_pool)?;
+
+        let extracted_version_code = match &version_code_attribute.typed_value.data {
+            ResValueType::IntDec(decimal_value) => {
+                trace!(value = decimal_value, "Extracted raw decimal versionCode");
+                *decimal_value
+            },
+            ResValueType::IntHex(hex_value) => {
+                trace!(value = hex_value, "Extracted raw hex versionCode");
+                *hex_value
+            },
+            ResValueType::String(string_reference) => {
+                let resolved = string_reference.resolve(&self.manifest.string_pool)?;
+                let parsed = resolved.parse::<u32>().ok()?;
+                trace!(value = parsed, "Parsed string-based versionCode");
+                parsed
+            }
+            fallback_data => {
+                let data_string = format!("{:?}", fallback_data);
+                let parsed = data_string.chars().filter(|character| character.is_ascii_digit()).collect::<String>().parse::<u32>().ok()?;
+                trace!(value = parsed, "Fell back to regex-style parsing for versionCode");
+                parsed
+            }
+        };
+
+        let extracted_version_name = match &version_name_attribute.typed_value.data {
+            ResValueType::String(string_reference) => {
+                let resolved = string_reference.resolve(&self.manifest.string_pool)?.to_string();
+                trace!(name = %resolved, "Extracted string-based versionName");
+                resolved
+            }
+            _ => {
+                trace!("Failed to extract valid versionName");
+                return None;
+            }
+        };
+
+        Some((extracted_version_code, extracted_version_name))
+    }
+
+    #[instrument(skip_all)]
     pub fn save_to_paths(self, manifest_path: &Path, table_path: Option<&Path>) -> Result<(), ResError> {
         debug!("Saving patched Manifest to {:?}", manifest_path);
         let mut manifest_output_file = fs::File::create(manifest_path)?;
@@ -83,6 +131,7 @@ impl ApkEditor {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_current_package(&mut self) -> Option<String> {
         trace!("Attempting to retrieve current package from Manifest");
         let root_element = self
@@ -90,16 +139,20 @@ impl ApkEditor {
             .root
             .get_element_mut(&["manifest"], &self.manifest.string_pool)?;
         let package_attribute = root_element.get_attribute_mut("package", &self.manifest.string_pool)?;
+
         match package_attribute.typed_value.data {
-            ResValueType::String(ref string_value) => string_value
-                .resolve(&self.manifest.string_pool)
-                .map(|resolved_string| resolved_string.to_string()),
+            ResValueType::String(ref string_value) => {
+                let resolved = string_value.resolve(&self.manifest.string_pool).map(|resolved_string| resolved_string.to_string());
+                trace!(package = ?resolved, "Retrieved package identifier");
+                resolved
+            },
             _ => None,
         }
     }
 
+    #[instrument(skip_all, fields(suffix = %target_package_suffix, title = %app_title))]
     pub fn apply_patches(&mut self, target_package_suffix: &str, app_title: &str) -> Result<(), ResError> {
-        info!("Applying Manifest patches. Suffix: '{}', Title: '{}'", target_package_suffix, app_title);
+        info!("Applying Manifest patches");
 
         let root_element = self
             .manifest
@@ -119,6 +172,7 @@ impl ApkEditor {
                 .unwrap_or_default();
             resolved_name != "split"
         });
+
         if root_element.children.len() < initial_children_count {
             trace!("Removed ghost <split> tags from root");
         }
@@ -217,6 +271,7 @@ impl ApkEditor {
 
             !(resolved_value.contains("vending.splits") || resolved_value.contains("vending.derived.apk.id"))
         });
+
         if application_element.children.len() < pre_vending_count {
             trace!("Stripped vending split metadata tags");
         }
@@ -251,16 +306,34 @@ impl ApkEditor {
                     Some(0x01010001.into()),
                 );
             }
+
+            trace!("Scrubbing original labels from all activities to force application label inheritance...");
+            strip_activity_labels(application_element, &mut self.manifest.string_pool);
         }
 
-        if let Some(ref mut mutable_table) = self.res_table
-            && let Some(first_package) = mutable_table.packages.first_mut() {
-            debug!("Updating resources.arsc package name to {}", final_constructed_package_name);
-            first_package.name.clone_from(&final_constructed_package_name);
+        if let Some(ref mut mutable_table) = self.res_table {
+            if let Some(first_package) = mutable_table.packages.first_mut() {
+                debug!("Updating resources.arsc package name to {}", final_constructed_package_name);
+                first_package.name.clone_from(&final_constructed_package_name);
+            }
         }
 
         info!("Patching complete. New identity: {}", final_constructed_package_name);
         Ok(())
+    }
+}
+
+fn strip_activity_labels(node: &mut XMLTreeNode, pool: &mut StringPoolHandler) {
+    let is_activity = node.element.name.resolve(pool).is_some_and(|name| name == "activity" || name == "activity-alias");
+
+    if is_activity {
+        node.element.attributes.retain(|attribute| {
+            attribute.name.resolve(pool).is_none_or(|attr_name| attr_name != "label")
+        });
+    }
+
+    for child in &mut node.children {
+        strip_activity_labels(child, pool);
     }
 }
 
@@ -312,11 +385,12 @@ fn replace_package_references(
             _ => {}
         }
 
-        if let Some(found_string) = resolved_string_value
-            && found_string.contains(old_package_identity) {
-            trace!("Replaced deep reference in attribute '{}': {} -> {}", attribute_name, old_package_identity, new_package_identity);
-            let replaced_value = found_string.replace(old_package_identity, new_package_identity);
-            attribute_node.write_string(replaced_value.into(), string_pool);
+        if let Some(found_string) = resolved_string_value {
+            if found_string.contains(old_package_identity) {
+                trace!("Replaced deep reference in attribute '{}': {} -> {}", attribute_name, old_package_identity, new_package_identity);
+                let replaced_value = found_string.replace(old_package_identity, new_package_identity);
+                attribute_node.write_string(replaced_value.into(), string_pool);
+            }
         }
     }
 
@@ -331,6 +405,7 @@ fn replace_package_references(
     }
 }
 
+#[instrument(skip_all)]
 pub fn inject_and_build_apk(
     source_apk_path: &Path,
     output_apk_path: &Path,
@@ -426,6 +501,7 @@ pub fn inject_and_build_apk(
             }
         }
     }
+
     let mut discovered_code_zip_paths = Vec::new();
     let mut has_target_architecture_folder = false;
 
@@ -462,9 +538,10 @@ pub fn inject_and_build_apk(
             continue;
         }
 
-        if internal_file_name.starts_with("res/")
-            && let Some(parent_path) = Path::new(&internal_file_name).parent() {
-            pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
+        if internal_file_name.starts_with("res/") {
+            if let Some(parent_path) = Path::new(&internal_file_name).parent() {
+                pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
+            }
         }
 
         let short_file_name = Path::new(&internal_file_name)
@@ -481,8 +558,8 @@ pub fn inject_and_build_apk(
         }
 
         if internal_file_name.starts_with("lib/") {
-            if let Some(arch) = target_architecture {
-                if internal_file_name.starts_with(&format!("lib/{arch}/")) {
+            if let Some(target_arch) = target_architecture {
+                if internal_file_name.starts_with(&format!("lib/{target_arch}/")) {
                     has_target_architecture_folder = true;
                     if custom_code_files.contains_key(&short_file_name) {
                         trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
@@ -525,16 +602,16 @@ pub fn inject_and_build_apk(
     }
 
     if !custom_code_files.is_empty() {
-        if let Some(arch) = target_architecture {
+        if let Some(target_arch) = target_architecture {
             if !has_target_architecture_folder {
                 if show_ui {
                     use colored::Colorize;
-                    println!("  {} Target architecture missing from APK", "!".yellow());
-                    println!("  {} Skipping code injection", "!".yellow());
+                    println!("  {} Target architecture missing from APK", "!".truecolor(255, 165, 0));
+                    println!("  {} Skipping code injection", "!".truecolor(255, 165, 0));
                 }
                 warn!("Target architecture missing from APK, skipping code injection");
             } else {
-                debug!("Injecting modded native code payloads for architecture {}...", arch);
+                debug!("Injecting modded native code payloads for architecture {}...", target_arch);
                 let mut successfully_injected_keys = HashSet::new();
 
                 for (zip_path, short_name) in discovered_code_zip_paths {
@@ -550,7 +627,7 @@ pub fn inject_and_build_apk(
                 }
 
                 for (short_name, local_path) in custom_code_files {
-                    let fallback_path = format!("lib/{arch}/{short_name}");
+                    let fallback_path = format!("lib/{target_arch}/{short_name}");
                     trace!(file = %fallback_path, "Injecting new native library into target architecture");
                     inject_local_file(&mut zip_writer, &mut successfully_injected_count, &local_path, &fallback_path, true)?;
                 }
@@ -558,8 +635,8 @@ pub fn inject_and_build_apk(
         } else {
             if show_ui {
                 use colored::Colorize;
-                println!("  {} No architecture specified", "!".yellow());
-                println!("  {} Skipping code injection", "!".yellow());
+                println!("  {} No architecture specified", "!".truecolor(255, 165, 0));
+                println!("  {} Skipping code injection", "!".truecolor(255, 165, 0));
             }
             debug!("No architecture specified, skipping code injection");
         }
@@ -678,6 +755,7 @@ pub fn inject_and_build_apk(
     Ok(successfully_injected_count)
 }
 
+#[instrument(skip_all)]
 pub fn normalize_apk(input_apk_path: &Path, output_apk_path: &Path, original_reference_apk: &Path) -> Result<()> {
     info!("Normalizing APK binaries for signature verification...");
     let mut stored_files_ledger = HashSet::new();
