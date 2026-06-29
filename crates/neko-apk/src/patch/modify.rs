@@ -354,6 +354,9 @@ fn replace_package_references(
         "host",
     ];
 
+    let tag_name = element_node.element.name.resolve(string_pool).unwrap_or_default().to_string();
+    let is_component = matches!(tag_name.as_str(), "application" | "activity" | "activity-alias" | "service" | "receiver" | "provider");
+
     for attribute_name in attributes_to_inspect {
         let Some(attribute_node) = element_node.get_attribute_mut(attribute_name, string_pool) else {
             continue;
@@ -386,6 +389,17 @@ fn replace_package_references(
         }
 
         if let Some(found_string) = resolved_string_value {
+            if attribute_name == "name" && is_component {
+                if found_string.starts_with('.') {
+                    let new_val = format!("{}{}", old_package_identity, found_string);
+                    attribute_node.write_string(new_val.into(), string_pool);
+                } else if !found_string.contains('.') {
+                    let new_val = format!("{}.{}", old_package_identity, found_string);
+                    attribute_node.write_string(new_val.into(), string_pool);
+                }
+                continue;
+            }
+
             if found_string.contains(old_package_identity) {
                 trace!("Replaced deep reference in attribute '{}': {} -> {}", attribute_name, old_package_identity, new_package_identity);
                 let replaced_value = found_string.replace(old_package_identity, new_package_identity);
@@ -530,12 +544,17 @@ pub fn inject_and_build_apk(
         let internal_file_name = archive_file.name().to_string();
 
         let uppercase_file_name = internal_file_name.to_ascii_uppercase();
-        if uppercase_file_name.starts_with("META-INF/")
-            || uppercase_file_name.starts_with("META-INF\\")
-            || uppercase_file_name.contains("STAMP-CERT")
-        {
-            trace!("Skipping original signature file: {}", internal_file_name);
-            continue;
+        if uppercase_file_name.starts_with("META-INF/") || uppercase_file_name.starts_with("META-INF\\") {
+            if uppercase_file_name.ends_with(".SF")
+                || uppercase_file_name.ends_with(".RSA")
+                || uppercase_file_name.ends_with(".DSA")
+                || uppercase_file_name.ends_with(".EC")
+                || uppercase_file_name.ends_with("MANIFEST.MF")
+                || uppercase_file_name.contains("STAMP-CERT")
+            {
+                trace!("Skipping original signature file: {}", internal_file_name);
+                continue;
+            }
         }
 
         if internal_file_name.starts_with("res/") {
