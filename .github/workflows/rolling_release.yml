@@ -24,9 +24,10 @@ jobs:
           echo "Found workspace version: $VERSION"
 
   build-windows:
-    name: Build Windows
-    needs: prepare
+    name: Build Windows (x64)
     runs-on: windows-latest
+    env:
+      ASSET: neko-windows-x64.zip
     steps:
       - uses: actions/checkout@v5
 
@@ -42,19 +43,27 @@ jobs:
             cp "target/release/${BIN_NAME}.exe" staging/
           done
           cd staging
-          7z a "../neko-ware-win-v${{ needs.prepare.outputs.app_version }}.zip" *
+          7z a "../${ASSET}" *
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: neko-ware-win-v${{ needs.prepare.outputs.app_version }}.zip
+          name: windows-x64-zip
+          path: ${{ env.ASSET }}
           retention-days: 1
 
   build-linux:
-    name: Build Linux
-    needs: prepare
-    runs-on: ubuntu-latest
+    name: Build Linux (${{ matrix.flavor }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - flavor: x64
+            runner: ubuntu-22.04
+          - flavor: arm
+            runner: ubuntu-22.04-arm
+    env:
+      ASSET: neko-linux-${{ matrix.flavor }}.zip
     steps:
       - uses: actions/checkout@v5
 
@@ -70,41 +79,52 @@ jobs:
             chmod +x "staging/${BIN_NAME}"
           done
           cd staging
-          zip -r "../neko-ware-linux-v${{ needs.prepare.outputs.app_version }}.zip" ./*
+          zip -r "../${ASSET}" ./*
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-zip
-          path: neko-ware-linux-v${{ needs.prepare.outputs.app_version }}.zip
+          name: linux-${{ matrix.flavor }}-zip
+          path: ${{ env.ASSET }}
           retention-days: 1
 
   build-macos:
-    name: Build MacOS
-    needs: prepare
+    name: Build MacOS (${{ matrix.flavor }})
     runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - flavor: arm
+            target: aarch64-apple-darwin
+          - flavor: x64
+            target: x86_64-apple-darwin
+    env:
+      ASSET: neko-mac-${{ matrix.flavor }}.zip
     steps:
       - uses: actions/checkout@v5
 
+      - name: Add Rust Target
+        run: rustup target add ${{ matrix.target }}
+
       - name: Build All Crates
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Gather, Executable, and Zip Binaries
         run: |
           mkdir -p staging
           for toml in crates/*/Cargo.toml; do
             BIN_NAME=$(grep -m 1 "^name" "$toml" | awk -F '"' '{print $2}' | tr -d ' ')
-            cp "target/release/${BIN_NAME}" staging/
+            cp "target/${{ matrix.target }}/release/${BIN_NAME}" staging/
             chmod +x "staging/${BIN_NAME}"
           done
           cd staging
-          zip -r "../neko-ware-mac-v${{ needs.prepare.outputs.app_version }}.zip" ./*
+          zip -r "../${ASSET}" ./*
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-zip
-          path: neko-ware-mac-v${{ needs.prepare.outputs.app_version }}.zip
+          name: mac-${{ matrix.flavor }}-zip
+          path: ${{ env.ASSET }}
           retention-days: 1
 
   publish-rolling:
@@ -129,6 +149,6 @@ jobs:
           sleep 3
           gh release create rolling \
             --target ${{ github.sha }} \
-            --title "Neko-Ware" \
-            --notes "Pre-built and packaged \`Neko-Ware\` binaries by operating system" \
+            --title "Neko-Ware v${{ needs.prepare.outputs.app_version }}" \
+            --notes "Pre-built and packaged \`Neko-Ware\` binaries by operating system and architecture." \
             final_assets/*.zip
