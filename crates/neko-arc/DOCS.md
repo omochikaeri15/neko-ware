@@ -6,6 +6,8 @@ Switch assets are stored under a 64-bit hash of their full asset path (`Data/Ima
 
 Pulls every `.arc` straight out of an `.nsp`. They land in a folder named after the NSP in the working directory, under the same `Archive/` path the game reads them from, ready to hand to `decrypt`.
 
+`--extra` (`-e`) dumps everything else instead: the sound, fonts, offline help pages, and rumble patterns that ship beside the archives rather than inside them. They are not encrypted beyond the NSP itself, so they come out exactly as the game reads them, under their own `Data/` paths.
+
 Everything inside an NSP is encrypted against the console, so it needs a `prod.keys` dumped from your own Switch. One sitting beside the `neko-arc` binary is picked up on its own, following a symlink back to wherever the real binary lives; `--keys` (`-k`) `<FILE>` points at one anywhere else instead. Either way, the same keys cover every NSP in the run.
 
 An update is a patch that only makes sense laid over its base game, so whenever one is found it is applied, and what comes out is the set of archives the game actually loads once it is installed. Without an update, the base archives are dumped as they shipped.
@@ -13,6 +15,17 @@ An update is a patch that only makes sense laid over its base game, so whenever 
 The update does not have to live in the same NSP as its base. Every NSP named in a run is read first and each update is paired with its base game by title ID, the way an emulator keeps the two installed side by side, so `neko-arc dump "Game [v0].nsp" "Game [Update].nsp"` yields one folder, named after the base NSP, with the update already applied. An update named without its base is reported and skipped, and a second base or update for a game already found is ignored with a warning, so name only the update you want.
 
 Accepts `--file` (`-f`), repeatable, and `--dir` (`-d`) `<DIR> <LEVEL>` the same way `decrypt` does: walking a directory picks up `.nsp` files only, and one bad NSP is reported and skipped rather than ending the run. `--output` (`-o`) behaves as it does for `decrypt`, too.
+
+### RIP
+`neko-arc rip <NSP>...`
+
+Takes an `.nsp` all the way to named, converted files in one pass: everything `dump`, `decrypt`, `decode --rename`, and `convert` would do, run back to back. Only `.nsp` files are accepted, and naming anything else ends the run before it starts.
+
+Nothing in between ever touches the disk. Each archive member is read straight out of the NSP, inflated, named, and converted in memory, so the only files written are the finished ones. They land in a folder named after the NSP in the working directory, with a folder per archive inside (`Data/`, `Data_en/`, `Patch001/`, and so on), and match what the four commands would leave you with byte for byte. A member the dictionary has no name for keeps its hash and is converted the way `convert` handles any other hashed file.
+
+The keys and the dictionary are both checked before any work begins, and the run stops if either is missing. `--keys` (`-k`) `<FILE>` and `--dictionary` (`-c`) `<FILE>` point at them the same way they do for `dump` and `decode`; otherwise the `prod.keys` and `dictionary.csv` sitting beside the `neko-arc` binary are used. Those are the only two flags it takes.
+
+Updates are paired and applied exactly as they are for `dump`, so name the update NSP alongside its base. Only the archives are ripped; the rest of the NSP is left to `dump --extra`. `fix` is never run, so textures come out premultiplied, just as `convert` leaves them.
 
 ### DECRYPT
 `neko-arc decrypt <FILE | DIR>...`
