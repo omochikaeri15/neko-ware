@@ -152,6 +152,6 @@ jobs:
           sleep 3
           gh release create rolling \
             --target ${{ github.sha }} \
-            --title "Neko-Ware v${{ needs.prepare.outputs.app_version }}" \
-            --notes "Pre-built and packaged \`Neko-Ware\` binaries by operating system and architecture." \
+            --title "v${{ needs.prepare.outputs.app_version }}" \
+            --notes "Pre-built and packaged binaries by operating system and architecture." \
             final_assets/*.zip
