@@ -4,7 +4,7 @@ mod nsp;
 mod patch;
 mod romfs;
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use colored::Colorize;
@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 use crate::io::{beside_binary, get_local_dir, has_extension, write_all_at};
 
 const KEYS_NAME: &str = "prod.keys";
-const CHUNK_SIZE: u64 = 0x40_0000;
+const CHUNK_SIZE: u64 = 0x10_0000;
 
 trait Storage: Sync {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), String>;
@@ -45,7 +45,6 @@ struct Output {
     offset: u64,
     size: u64,
     path: PathBuf,
-    file: File,
 }
 
 pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: Option<&str>, show_ui: bool) {
@@ -154,14 +153,14 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
 
     if total_dumped == 0 {
         if show_ui {
-            println!("\nFAILURE: Dumped no archives!\n");
+            println!("\nFAILURE: Dumped no files!\n");
         }
-        error!(failed = failed_count, "Dumped no archives");
+        error!(failed = failed_count, "Dumped no files");
         std::process::exit(1);
     }
 
     if show_ui {
-        println!("\nSUCCESS: Dumped {} archives!\n", total_dumped.to_string().cyan());
+        println!("\nSUCCESS: Dumped {} files!\n", total_dumped.to_string().cyan());
     }
     info!(dumped = total_dumped, failed = failed_count, "NSP dump complete");
 }
@@ -270,41 +269,55 @@ fn dump_game(
         None => String::new(),
     };
 
-    let archives: Vec<romfs::RomFile> = romfs::list_files(&source, data_offset)?
-        .into_iter()
+    let files = romfs::list_files(&source, data_offset)?;
+    let archive_count = files
+        .iter()
         .filter(|entry| has_extension(Path::new(&entry.path), "arc"))
-        .collect();
+        .count();
 
     if show_ui {
         println!(
-            "  {} Dumping {} archives from {}{}",
+            "  {} Dumping {} files, {} of them archives, from {}{}",
             "!".yellow(),
-            archives.len().to_string().cyan(),
+            files.len().to_string().cyan(),
+            archive_count.to_string().cyan(),
             package_name.cyan(),
             applied
         );
     }
     debug!(
-        archives = archives.len(),
+        files = files.len(),
+        archives = archive_count,
         patched = update.is_some(),
-        "Listed RomFS archives"
+        "Listed RomFS files"
     );
 
-    let mut outputs = Vec::with_capacity(archives.len());
-
-    for archive in archives {
-        let path = output_base.join(&archive.path);
-        outputs.push(Output {
-            offset: archive.offset,
-            size: archive.size,
-            file: create_output(&path, archive.size)?,
-            path,
-        });
-    }
+    let outputs: Vec<Output> = files
+        .into_iter()
+        .map(|entry| Output {
+            offset: entry.offset,
+            size: entry.size,
+            path: output_base.join(&entry.path),
+        })
+        .collect();
 
     if outputs.is_empty() {
-        return Err(String::from("No .arc files found in the NSP"));
+        return Err(String::from("No files found in the NSP RomFS"));
     }
+
+    let mut directories: Vec<&Path> = outputs.iter().filter_map(|output| output.path.parent()).collect();
+    directories.sort_unstable();
+    directories.dedup();
+
+    for directory in directories {
+        fs::create_dir_all(directory).map_err(|err| format!("Could not create {}: {err}", directory.display()))?;
+    }
+
+    outputs.par_iter().try_for_each(|output| {
+        File::create(&output.path)
+            .map(drop)
+            .map_err(|err| format!("Could not create {}: {err}", output.path.display()))
+    })?;
 
     let chunks: Vec<(usize, u64)> = outputs
         .iter()
@@ -325,10 +338,16 @@ fn dump_game(
 
             let outcome = source
                 .read_at(output.offset + start, buffer)
-                .and_then(|()| write_all_at(&output.file, buffer, start).map_err(|err| err.to_string()));
+                .and_then(|()| {
+                    OpenOptions::new()
+                        .write(true)
+                        .open(&output.path)
+                        .and_then(|file| write_all_at(&file, buffer, start))
+                        .map_err(|err| err.to_string())
+                });
 
             outcome.err().map(|err| {
-                warn!(file = %output.path.display(), offset = start, error = %err, "Failed to dump archive chunk");
+                warn!(file = %output.path.display(), offset = start, error = %err, "Failed to dump file chunk");
                 (index, err)
             })
         })
@@ -342,30 +361,30 @@ fn dump_game(
     for &index in &failed {
         let output = &outputs[index];
         let _ = fs::remove_file(&output.path);
-        warn!(file = %output.path.display(), "Removed partially dumped archive");
+        warn!(file = %output.path.display(), "Removed partially dumped file");
     }
 
     if let Some((_, err)) = failures.first() {
         if show_ui {
             println!(
-                "  {} Could not dump {} archives from {}: {}",
+                "  {} Could not dump {} files from {}: {}",
                 "✗".red(),
                 failed.len().to_string().cyan(),
                 package_name.cyan(),
                 err
             );
         }
-        warn!(package = %package_name, failed = failed.len(), error = %err, "Could not dump archives");
+        warn!(package = %package_name, failed = failed.len(), error = %err, "Could not dump files");
     }
 
     let dumped = outputs.len() - failed.len();
     if dumped == 0 {
-        return Err(String::from("Every archive failed to dump"));
+        return Err(String::from("Every file failed to dump"));
     }
 
     if show_ui {
         println!(
-            "  {} Dumped {} archives to {}/",
+            "  {} Dumped {} files to {}/",
             "✓".green(),
             dumped.to_string().cyan(),
             output_base.display().to_string().cyan()
@@ -374,16 +393,6 @@ fn dump_game(
     info!(package = %package_name, dumped, dest = %output_base.display(), "Game dumped");
 
     Ok(dumped)
-}
-
-fn create_output(path: &Path, size: u64) -> Result<File, String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-
-    let file = File::create(path).map_err(|err| format!("Could not create {}: {err}", path.display()))?;
-    file.set_len(size).map_err(|err| err.to_string())?;
-    Ok(file)
 }
 
 impl Storage for Source<'_> {

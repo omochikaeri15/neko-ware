@@ -53,7 +53,7 @@ struct TargetArgs {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Dump FCRA archives straight out of an NSP")]
+    #[command(about = "Dump every RomFS file, FCRA archives included, straight out of an NSP")]
     Dump {
         #[command(flatten)]
         target: TargetArgs,
