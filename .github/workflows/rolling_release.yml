@@ -25,6 +25,7 @@ jobs:
 
   build-windows:
     name: Build Windows (x64)
+    needs: prepare
     runs-on: windows-latest
     env:
       ASSET: neko-windows-x64.zip
@@ -54,6 +55,7 @@ jobs:
 
   build-linux:
     name: Build Linux (${{ matrix.flavor }})
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -90,6 +92,7 @@ jobs:
 
   build-macos:
     name: Build MacOS (${{ matrix.flavor }})
+    needs: prepare
     runs-on: macos-latest
     strategy:
       matrix:
