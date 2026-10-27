@@ -4,7 +4,7 @@ use std::path::Path;
 
 pub(super) type Key = [u8; 16];
 
-pub(super) struct KeySet {
+pub(crate) struct KeySet {
     pub(super) header: [u8; 32],
     entries: HashMap<String, Vec<u8>>,
 }

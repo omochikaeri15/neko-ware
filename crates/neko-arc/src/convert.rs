@@ -58,6 +58,7 @@ pub fn execute(targets: &[PathBuf], output_dir: Option<&str>, show_ui: bool) {
 
     let results: Vec<(&Path, Result<usize, String>)> = sources
         .par_iter()
+        .with_max_len(1)
         .map(|source| {
             let outcome = convert_file(source, output_base.as_deref());
             (source.as_path(), outcome)
@@ -136,7 +137,7 @@ pub fn repair_textures(source: &Path) -> Result<usize, String> {
     Ok(written)
 }
 
-fn write_textures(bytes: &[u8], stem: &str, destination: &Path, unpremultiply: bool) -> Result<usize, String> {
+pub(crate) fn write_textures(bytes: &[u8], stem: &str, destination: &Path, unpremultiply: bool) -> Result<usize, String> {
     let textures = bntx::parse(bytes)?;
 
     if textures.is_empty() {
@@ -172,7 +173,7 @@ fn write_textures(bytes: &[u8], stem: &str, destination: &Path, unpremultiply: b
     Ok(written)
 }
 
-fn write_table(bytes: &[u8], stem: &str, destination: &Path) -> Result<usize, String> {
+pub(crate) fn write_table(bytes: &[u8], stem: &str, destination: &Path) -> Result<usize, String> {
     emit_table(bytes, stem, destination, false)?;
 
     Ok(1)

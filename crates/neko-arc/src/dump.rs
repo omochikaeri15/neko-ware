@@ -13,10 +13,13 @@ use tracing::{debug, error, info, warn};
 
 use crate::io::{beside_binary, get_local_dir, has_extension, write_all_at};
 
+pub(crate) use keys::KeySet;
+pub(crate) use romfs::RomFile;
+
 const KEYS_NAME: &str = "prod.keys";
 const CHUNK_SIZE: u64 = 0x10_0000;
 
-trait Storage: Sync {
+pub(crate) trait Storage: Sync {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), String>;
 }
 
@@ -47,7 +50,28 @@ struct Output {
     path: PathBuf,
 }
 
-pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: Option<&str>, show_ui: bool) {
+pub(crate) struct Rom<'a> {
+    source: Source<'a>,
+    pub(crate) package: &'a str,
+    pub(crate) applied: String,
+    pub(crate) patched: bool,
+    pub(crate) files: Vec<RomFile>,
+    pub(crate) output_base: PathBuf,
+}
+
+struct Copied {
+    written: usize,
+    failed: usize,
+    error: Option<String>,
+}
+
+pub(crate) fn execute(
+    targets: &[PathBuf],
+    keys_path: Option<&str>,
+    output_dir: Option<&str>,
+    extra: bool,
+    show_ui: bool,
+) {
     let paths: Vec<&PathBuf> = targets.iter().filter(|path| path.is_file()).collect();
 
     if paths.is_empty() {
@@ -58,6 +82,30 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
         std::process::exit(1);
     }
 
+    let keys = load_keys(keys_path, show_ui);
+    debug!(packages = paths.len(), extra, "Starting NSP dump");
+
+    let (total_dumped, failed_count) = for_each_rom(&paths, &keys, output_dir, "dump", show_ui, |rom| {
+        dump_rom(rom, extra, show_ui)
+    });
+
+    let noun = if extra { "files" } else { "archives" };
+
+    if total_dumped == 0 {
+        if show_ui {
+            println!("\nFAILURE: Dumped no {noun}!\n");
+        }
+        error!(failed = failed_count, "Dumped no files");
+        std::process::exit(1);
+    }
+
+    if show_ui {
+        println!("\nSUCCESS: Dumped {} {noun}!\n", total_dumped.to_string().cyan());
+    }
+    info!(dumped = total_dumped, failed = failed_count, "NSP dump complete");
+}
+
+pub(crate) fn load_keys(keys_path: Option<&str>, show_ui: bool) -> KeySet {
     let Some(keys_path) = keys_path.map(PathBuf::from).or_else(|| beside_binary(KEYS_NAME)) else {
         if show_ui {
             println!(
@@ -69,7 +117,7 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
         std::process::exit(1);
     };
 
-    let keys = keys::KeySet::load(&keys_path).unwrap_or_else(|err| {
+    let keys = KeySet::load(&keys_path).unwrap_or_else(|err| {
         if show_ui {
             println!("\n  {} {}\n", "✗".red(), err);
         }
@@ -77,8 +125,18 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
         std::process::exit(1);
     });
     debug!(path = %keys_path.display(), "Loaded console keys");
-    debug!(packages = paths.len(), "Starting NSP dump");
 
+    keys
+}
+
+pub(crate) fn for_each_rom(
+    paths: &[&PathBuf],
+    keys: &KeySet,
+    output_dir: Option<&str>,
+    action: &str,
+    show_ui: bool,
+    mut handle: impl FnMut(&Rom) -> Result<usize, String>,
+) -> (usize, usize) {
     if show_ui {
         println!();
     }
@@ -92,7 +150,7 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
             .file_stem()
             .map_or_else(|| String::from("package"), |stem| stem.to_string_lossy().into_owned());
 
-        match scan_package(path, &keys) {
+        match scan_package(path, keys) {
             Ok((file, sections)) => {
                 contents.extend(sections.into_iter().map(|section| Content {
                     package: packages.len(),
@@ -112,7 +170,7 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
 
     let games = pair_games(&packages, &contents, show_ui);
     let nested = games.len() > 1;
-    let mut total_dumped = 0;
+    let mut total_written = 0;
 
     for game in &games {
         match (game.base, game.update) {
@@ -124,14 +182,16 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
                     None => get_local_dir().join(package_name),
                 };
 
-                match dump_game(&packages, &contents, base, update, &output_base, show_ui) {
-                    Ok(dumped) => total_dumped += dumped,
+                let outcome = open_rom(&packages, &contents, base, update, output_base).and_then(|rom| handle(&rom));
+
+                match outcome {
+                    Ok(written) => total_written += written,
                     Err(err) => {
                         failed_count += 1;
                         if show_ui {
-                            println!("  {} Failed to dump {}: {}", "✗".red(), package_name.cyan(), err);
+                            println!("  {} Failed to {} {}: {}", "✗".red(), action, package_name.cyan(), err);
                         }
-                        error!(package = %package_name, error = %err, "Failed to dump game");
+                        error!(package = %package_name, action, error = %err, "Failed to process game");
                     }
                 }
             }
@@ -151,21 +211,10 @@ pub(crate) fn execute(targets: &[PathBuf], keys_path: Option<&str>, output_dir: 
         }
     }
 
-    if total_dumped == 0 {
-        if show_ui {
-            println!("\nFAILURE: Dumped no files!\n");
-        }
-        error!(failed = failed_count, "Dumped no files");
-        std::process::exit(1);
-    }
-
-    if show_ui {
-        println!("\nSUCCESS: Dumped {} files!\n", total_dumped.to_string().cyan());
-    }
-    info!(dumped = total_dumped, failed = failed_count, "NSP dump complete");
+    (total_written, failed_count)
 }
 
-fn scan_package(path: &Path, keys: &keys::KeySet) -> Result<(File, Vec<nca::RomSection>), String> {
+fn scan_package(path: &Path, keys: &KeySet) -> Result<(File, Vec<nca::RomSection>), String> {
     let file = File::open(path).map_err(|err| err.to_string())?;
     let members = nsp::read_members(&file)?;
     let title_keys = nsp::read_title_keys(&file, &members)?;
@@ -239,16 +288,14 @@ fn pair_games(packages: &[Package], contents: &[Content], show_ui: bool) -> Vec<
     games
 }
 
-fn dump_game(
-    packages: &[Package],
-    contents: &[Content],
+fn open_rom<'a>(
+    packages: &'a [Package],
+    contents: &'a [Content],
     base: usize,
     update: Option<usize>,
-    output_base: &Path,
-    show_ui: bool,
-) -> Result<usize, String> {
+    output_base: PathBuf,
+) -> Result<Rom<'a>, String> {
     let base = &contents[base];
-    let package_name = &packages[base.package].name;
     let base_reader = nca::SectionReader::open(&packages[base.package].file, &base.section);
     let update = update.map(|index| &contents[index]);
 
@@ -270,40 +317,101 @@ fn dump_game(
     };
 
     let files = romfs::list_files(&source, data_offset)?;
-    let archive_count = files
+
+    if files.is_empty() {
+        return Err(String::from("No files found in the NSP RomFS"));
+    }
+
+    Ok(Rom {
+        source,
+        package: &packages[base.package].name,
+        applied,
+        patched: update.is_some(),
+        files,
+        output_base,
+    })
+}
+
+fn dump_rom(rom: &Rom, extra: bool, show_ui: bool) -> Result<usize, String> {
+    let noun = if extra { "files" } else { "archives" };
+    let entries: Vec<&RomFile> = rom
+        .files
         .iter()
-        .filter(|entry| has_extension(Path::new(&entry.path), "arc"))
-        .count();
+        .filter(|entry| has_extension(Path::new(&entry.path), "arc") != extra)
+        .collect();
+
+    if entries.is_empty() {
+        return Err(if extra {
+            String::from("No files besides archives found in the NSP")
+        } else {
+            String::from("No .arc files found in the NSP")
+        });
+    }
 
     if show_ui {
         println!(
-            "  {} Dumping {} files, {} of them archives, from {}{}",
+            "  {} Dumping {} {} from {}{}",
             "!".yellow(),
-            files.len().to_string().cyan(),
-            archive_count.to_string().cyan(),
-            package_name.cyan(),
-            applied
+            entries.len().to_string().cyan(),
+            noun,
+            rom.package.cyan(),
+            rom.applied
         );
     }
     debug!(
-        files = files.len(),
-        archives = archive_count,
-        patched = update.is_some(),
+        files = entries.len(),
+        extra,
+        patched = rom.patched,
         "Listed RomFS files"
     );
 
-    let outputs: Vec<Output> = files
-        .into_iter()
+    let copied = copy_files(rom, &entries)?;
+
+    if let Some(err) = &copied.error {
+        if show_ui {
+            println!(
+                "  {} Could not dump {} {} from {}: {}",
+                "✗".red(),
+                copied.failed.to_string().cyan(),
+                noun,
+                rom.package.cyan(),
+                err
+            );
+        }
+        warn!(package = %rom.package, failed = copied.failed, error = %err, "Could not dump files");
+    }
+
+    if copied.written == 0 {
+        return Err(if extra {
+            String::from("Every file failed to dump")
+        } else {
+            String::from("Every archive failed to dump")
+        });
+    }
+
+    if show_ui {
+        println!(
+            "  {} Dumped {} {} to {}",
+            "✓".green(),
+            copied.written.to_string().cyan(),
+            noun,
+            format!("{}/", rom.output_base.display()).cyan()
+        );
+    }
+    info!(package = %rom.package, dumped = copied.written, dest = %rom.output_base.display(), "Game dumped");
+
+    Ok(copied.written)
+}
+
+fn copy_files(rom: &Rom, entries: &[&RomFile]) -> Result<Copied, String> {
+    let outputs: Vec<Output> = entries
+        .iter()
         .map(|entry| Output {
             offset: entry.offset,
             size: entry.size,
-            path: output_base.join(&entry.path),
+            path: rom.output_base.join(&entry.path),
         })
         .collect();
-
-    if outputs.is_empty() {
-        return Err(String::from("No files found in the NSP RomFS"));
-    }
 
     let mut directories: Vec<&Path> = outputs.iter().filter_map(|output| output.path.parent()).collect();
     directories.sort_unstable();
@@ -336,15 +444,13 @@ fn dump_game(
             let length = CHUNK_SIZE.min(output.size - start) as usize;
             buffer.resize(length, 0);
 
-            let outcome = source
-                .read_at(output.offset + start, buffer)
-                .and_then(|()| {
-                    OpenOptions::new()
-                        .write(true)
-                        .open(&output.path)
-                        .and_then(|file| write_all_at(&file, buffer, start))
-                        .map_err(|err| err.to_string())
-                });
+            let outcome = rom.read_at(output.offset + start, buffer).and_then(|()| {
+                OpenOptions::new()
+                    .write(true)
+                    .open(&output.path)
+                    .and_then(|file| write_all_at(&file, buffer, start))
+                    .map_err(|err| err.to_string())
+            });
 
             outcome.err().map(|err| {
                 warn!(file = %output.path.display(), offset = start, error = %err, "Failed to dump file chunk");
@@ -364,35 +470,11 @@ fn dump_game(
         warn!(file = %output.path.display(), "Removed partially dumped file");
     }
 
-    if let Some((_, err)) = failures.first() {
-        if show_ui {
-            println!(
-                "  {} Could not dump {} files from {}: {}",
-                "✗".red(),
-                failed.len().to_string().cyan(),
-                package_name.cyan(),
-                err
-            );
-        }
-        warn!(package = %package_name, failed = failed.len(), error = %err, "Could not dump files");
-    }
-
-    let dumped = outputs.len() - failed.len();
-    if dumped == 0 {
-        return Err(String::from("Every file failed to dump"));
-    }
-
-    if show_ui {
-        println!(
-            "  {} Dumped {} files to {}/",
-            "✓".green(),
-            dumped.to_string().cyan(),
-            output_base.display().to_string().cyan()
-        );
-    }
-    info!(package = %package_name, dumped, dest = %output_base.display(), "Game dumped");
-
-    Ok(dumped)
+    Ok(Copied {
+        written: outputs.len() - failed.len(),
+        failed: failed.len(),
+        error: failures.into_iter().next().map(|(_, err)| err),
+    })
 }
 
 impl Storage for Source<'_> {
@@ -401,5 +483,11 @@ impl Storage for Source<'_> {
             Self::Base(reader) => reader.read_at(offset, buf),
             Self::Patched(storage) => storage.read_at(offset, buf),
         }
+    }
+}
+
+impl Storage for Rom<'_> {
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), String> {
+        self.source.read_at(offset, buf)
     }
 }

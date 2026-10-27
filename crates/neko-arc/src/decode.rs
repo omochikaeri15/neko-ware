@@ -263,7 +263,7 @@ impl Restore {
     }
 }
 
-fn load_dictionary(path: &Path) -> Result<Vec<(String, String)>, String> {
+pub(crate) fn load_dictionary(path: &Path) -> Result<Vec<(String, String)>, String> {
     let content = fs::read_to_string(path).map_err(|err| err.to_string())?;
     let mut pairs = Vec::new();
 

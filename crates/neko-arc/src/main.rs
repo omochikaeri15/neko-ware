@@ -6,6 +6,7 @@ mod dump;
 mod fix;
 mod hash;
 mod io;
+mod rip;
 
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -53,7 +54,7 @@ struct TargetArgs {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Dump every RomFS file, FCRA archives included, straight out of an NSP")]
+    #[command(about = "Dump FCRA archives straight out of an NSP")]
     Dump {
         #[command(flatten)]
         target: TargetArgs,
@@ -66,6 +67,27 @@ enum Commands {
         keys: Option<String>,
         #[arg(short, long, value_name = "DIR", help = "Override the default output directory")]
         output: Option<String>,
+        #[arg(short, long, help = "Dump every RomFS file except the archives instead")]
+        extra: bool,
+    },
+    #[command(about = "Unpack, rename, and convert every archive in an NSP in one pass")]
+    Rip {
+        #[arg(value_name = "NSP", help = "The NSP to process, alongside its update NSP when it has one")]
+        input: Vec<String>,
+        #[arg(
+            short,
+            long,
+            value_name = "FILE",
+            help = "Use this prod.keys instead of the one beside the binary"
+        )]
+        keys: Option<String>,
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "FILE",
+            help = "Use this {hash},{name} dictionary instead of the one beside the binary"
+        )]
+        dictionary: Option<String>,
     },
     #[command(about = "Extract FCRA archives into folders of hashed files")]
     Decrypt {
@@ -175,12 +197,28 @@ fn main() {
     }
 
     match cli.command {
-        Some(Commands::Dump { target, keys, output }) => {
+        Some(Commands::Dump {
+            target,
+            keys,
+            output,
+            extra,
+        }) => {
             if target.is_empty() {
                 print_command_help("dump");
             }
             let targets = resolve_paths(&target, Some("nsp"), show_ui);
-            dump::execute(&targets, keys.as_deref(), output.as_deref(), show_ui);
+            dump::execute(&targets, keys.as_deref(), output.as_deref(), extra, show_ui);
+        }
+        Some(Commands::Rip {
+            input,
+            keys,
+            dictionary,
+        }) => {
+            if input.is_empty() {
+                print_command_help("rip");
+            }
+            let targets = resolve_packages(&input, show_ui);
+            rip::execute(&targets, keys.as_deref(), dictionary.as_deref(), show_ui);
         }
         Some(Commands::Decrypt { target, output }) => {
             if target.is_empty() {
@@ -328,6 +366,24 @@ fn resolve_paths(target: &TargetArgs, walked: Option<&str>, show_ui: bool) -> Ve
 
     if paths.is_empty() {
         abort("No target given, expected a path, --file, or --dir", show_ui);
+    }
+
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn resolve_packages(inputs: &[String], show_ui: bool) -> Vec<PathBuf> {
+    let mut paths = Vec::with_capacity(inputs.len());
+
+    for input in inputs {
+        let path = PathBuf::from(input);
+
+        if !path.is_file() || !has_extension(&path, "nsp") {
+            abort(&format!("Rip only targets .nsp files, '{input}' is not one"), show_ui);
+        }
+
+        paths.push(path);
     }
 
     paths.sort();

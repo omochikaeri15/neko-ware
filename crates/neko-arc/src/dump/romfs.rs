@@ -8,10 +8,10 @@ const FILE_ENTRY: usize = 0x20;
 const EMPTY: u32 = u32::MAX;
 const MAX_TABLE_SIZE: u64 = 0x1000_0000;
 
-pub(super) struct RomFile {
-    pub(super) path: String,
-    pub(super) offset: u64,
-    pub(super) size: u64,
+pub(crate) struct RomFile {
+    pub(crate) path: String,
+    pub(crate) offset: u64,
+    pub(crate) size: u64,
 }
 
 struct Tables {

@@ -59,6 +59,7 @@ pub fn execute(targets: &[PathBuf], kinds: &FixKinds, show_ui: bool) {
 
     let results: Vec<(&Path, &Repair, Result<usize, String>)> = sources
         .par_iter()
+        .with_max_len(1)
         .map(|(source, kind)| {
             let outcome = match kind {
                 Repair::Texture => repair_textures(source),
