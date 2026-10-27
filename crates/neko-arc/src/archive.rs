@@ -6,7 +6,7 @@ use colored::Colorize;
 use flate2::read::ZlibDecoder;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::io::get_local_dir;
+use crate::io::{get_local_dir, read_u32, read_u64};
 
 const ARCHIVE_MAGIC: &[u8] = b"FCRA";
 const ZLIB_MAGIC: [u8; 2] = [0x78, 0xDA];
@@ -280,16 +280,4 @@ fn detect_extension(payload: &[u8]) -> &'static str {
     } else {
         ""
     }
-}
-
-fn read_u32(bytes: &[u8]) -> u32 {
-    let mut buffer = [0u8; 4];
-    buffer.copy_from_slice(&bytes[..4]);
-    u32::from_le_bytes(buffer)
-}
-
-fn read_u64(bytes: &[u8]) -> u64 {
-    let mut buffer = [0u8; 8];
-    buffer.copy_from_slice(&bytes[..8]);
-    u64::from_le_bytes(buffer)
 }

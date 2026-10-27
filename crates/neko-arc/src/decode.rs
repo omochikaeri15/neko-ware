@@ -5,15 +5,21 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::convert::{TAB_SEPARATOR, name_separator};
 use crate::hash::hash_hex;
-use crate::io::{file_name_of, get_local_dir, walk_files};
+use crate::io::{file_name_of, walk_files};
+
+const CONVERTED_TABLES: [&str; 2] = ["csv", "tsv"];
+
+struct Restore {
+    name: String,
+    contents: Option<String>,
+}
 
 pub struct DecodeRequest<'a> {
-    pub names: &'a [&'a str],
-    pub directory: Option<(PathBuf, usize)>,
-    pub dictionary: Option<&'a str>,
-    pub print: bool,
-    pub rename: Option<usize>,
+    pub names: &'a [String],
+    pub directories: &'a [(PathBuf, usize)],
+    pub dictionary: Option<&'a Path>,
 }
 
 struct Mapping {
@@ -48,10 +54,10 @@ pub fn execute(request: &DecodeRequest, show_ui: bool) {
     let mut mapping = Mapping::new();
 
     for name in request.names {
-        mapping.insert(hash_hex(name), (*name).to_string());
+        mapping.insert(hash_hex(name), name.to_string());
     }
 
-    if let Some((directory, level)) = &request.directory {
+    for (directory, level) in request.directories {
         if !directory.is_dir() {
             if show_ui {
                 println!("\n  {} Directory not found: {}\n", "✗".red(), directory.display());
@@ -70,20 +76,7 @@ pub fn execute(request: &DecodeRequest, show_ui: bool) {
     }
 
     if let Some(dictionary_path) = request.dictionary {
-        match load_dictionary(Path::new(dictionary_path)) {
-            Ok(pairs) => {
-                for (digest, name) in pairs {
-                    mapping.insert(digest, name);
-                }
-            }
-            Err(err) => {
-                if show_ui {
-                    println!("\n  {} Could not read dictionary: {}\n", "✗".red(), err);
-                }
-                error!(path = %dictionary_path, error = %err, "Could not read dictionary");
-                std::process::exit(1);
-            }
-        }
+        insert_dictionary(&mut mapping, dictionary_path, show_ui);
     }
 
     if mapping.is_empty() {
@@ -94,12 +87,34 @@ pub fn execute(request: &DecodeRequest, show_ui: bool) {
         std::process::exit(1);
     }
 
-    if request.print {
-        print_mapping(&mapping, show_ui);
-    }
+    print_mapping(&mapping, show_ui);
+}
 
-    if let Some(level) = request.rename {
-        rename_matches(&mapping, level, show_ui);
+pub fn rename(targets: &[PathBuf], dictionary_path: &Path, print: bool, show_ui: bool) {
+    let mut mapping = Mapping::new();
+    insert_dictionary(&mut mapping, dictionary_path, show_ui);
+    debug!(
+        files = targets.len(),
+        entries = mapping.order.len(),
+        "Renaming hashed files"
+    );
+    rename_matches(&mapping, targets, print, show_ui);
+}
+
+fn insert_dictionary(mapping: &mut Mapping, dictionary_path: &Path, show_ui: bool) {
+    match load_dictionary(dictionary_path) {
+        Ok(pairs) => {
+            for (digest, name) in pairs {
+                mapping.insert(digest, name);
+            }
+        }
+        Err(err) => {
+            if show_ui {
+                println!("\n  {} Could not read dictionary: {}\n", "✗".red(), err);
+            }
+            error!(path = %dictionary_path.display(), error = %err, "Could not read dictionary");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -124,14 +139,15 @@ fn print_mapping(mapping: &Mapping, show_ui: bool) {
     }
 }
 
-fn rename_matches(mapping: &Mapping, level: usize, show_ui: bool) {
-    let root = get_local_dir();
-    debug!(path = %root.display(), level, "Walking working directory for hashed files");
-
+fn rename_matches(mapping: &Mapping, targets: &[PathBuf], print: bool, show_ui: bool) {
     let mut renamed_count = 0;
     let mut skipped_count = 0;
 
-    for path in walk_files(&root, level) {
+    if show_ui && print {
+        println!();
+    }
+
+    for path in targets {
         let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
@@ -144,9 +160,10 @@ fn rename_matches(mapping: &Mapping, level: usize, show_ui: bool) {
             continue;
         };
 
-        let target = parent.join(restore_name(proper_name, &path));
+        let restore = plan_restore(proper_name, path);
+        let target = parent.join(&restore.name);
 
-        if target == path {
+        if target == *path {
             continue;
         }
 
@@ -164,7 +181,12 @@ fn rename_matches(mapping: &Mapping, level: usize, show_ui: bool) {
             continue;
         }
 
-        if let Err(err) = fs::rename(&path, &target) {
+        let outcome = match restore.contents {
+            Some(contents) => fs::write(&target, contents).and_then(|()| fs::remove_file(path)),
+            None => fs::rename(path, &target),
+        };
+
+        if let Err(err) = outcome {
             if show_ui {
                 println!("  {} Failed to rename {}: {}", "✗".red(), stem.cyan(), err);
             }
@@ -174,6 +196,9 @@ fn rename_matches(mapping: &Mapping, level: usize, show_ui: bool) {
         }
 
         renamed_count += 1;
+        if show_ui && print {
+            println!("  {}  {}", stem.cyan(), restore.name);
+        }
         trace!(from = %path.display(), to = %target.display(), "Renamed hashed file");
     }
 
@@ -191,17 +216,51 @@ fn rename_matches(mapping: &Mapping, level: usize, show_ui: bool) {
     info!(renamed = renamed_count, skipped = skipped_count, "Rename pass complete");
 }
 
-fn restore_name(proper_name: &str, hashed_path: &Path) -> String {
+fn plan_restore(proper_name: &str, hashed_path: &Path) -> Restore {
     let Some(extension) = hashed_path.extension().and_then(|ext| ext.to_str()) else {
-        return proper_name.to_string();
+        return Restore::renamed(proper_name.to_string());
     };
 
     let suffix = format!(".{extension}");
     if proper_name.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase()) {
-        return proper_name.to_string();
+        return Restore::renamed(proper_name.to_string());
     }
 
-    format!("{proper_name}{suffix}")
+    let converted = CONVERTED_TABLES
+        .iter()
+        .any(|table| extension.eq_ignore_ascii_case(table));
+    if converted && Path::new(proper_name).extension().is_some() {
+        let current = name_separator(&suffix);
+        let wanted = name_separator(proper_name);
+
+        if current == wanted {
+            return Restore::renamed(proper_name.to_string());
+        }
+
+        match fs::read_to_string(hashed_path) {
+            Ok(text) if wanted == TAB_SEPARATOR && text.contains(TAB_SEPARATOR) => {
+                warn!(name = %proper_name, "Table fields hold both separators, keeping its guessed extension");
+            }
+            Ok(text) => {
+                trace!(name = %proper_name, "Swapping the guessed separator for the one its name calls for");
+                return Restore {
+                    name: proper_name.to_string(),
+                    contents: Some(text.replace(current, wanted)),
+                };
+            }
+            Err(err) => {
+                warn!(name = %proper_name, error = %err, "Could not read table to swap its separator");
+            }
+        }
+    }
+
+    Restore::renamed(format!("{proper_name}{suffix}"))
+}
+
+impl Restore {
+    fn renamed(name: String) -> Self {
+        Self { name, contents: None }
+    }
 }
 
 fn load_dictionary(path: &Path) -> Result<Vec<(String, String)>, String> {

@@ -2,6 +2,7 @@ mod archive;
 mod convert;
 mod decode;
 mod dictionary;
+mod dump;
 mod fix;
 mod hash;
 mod io;
@@ -16,7 +17,7 @@ use tracing_subscriber::fmt;
 
 use crate::decode::DecodeRequest;
 use crate::fix::FixKinds;
-use crate::io::{DEFAULT_LEVEL, get_local_dir, has_extension, walk_files};
+use crate::io::{DEFAULT_LEVEL, beside_binary, file_name_of, get_local_dir, has_extension, walk_files};
 
 #[derive(Parser)]
 #[command(name = "neko-arc", version, about = "Battle Cats Switch Archive Toolkit", long_about = None)]
@@ -52,6 +53,20 @@ struct TargetArgs {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Dump FCRA archives straight out of an NSP")]
+    Dump {
+        #[command(flatten)]
+        target: TargetArgs,
+        #[arg(
+            short,
+            long,
+            value_name = "FILE",
+            help = "Use this prod.keys instead of the one beside the binary"
+        )]
+        keys: Option<String>,
+        #[arg(short, long, value_name = "DIR", help = "Override the default output directory")]
+        output: Option<String>,
+    },
     #[command(about = "Extract FCRA archives into folders of hashed files")]
     Decrypt {
         #[command(flatten)]
@@ -67,20 +82,21 @@ enum Commands {
             short = 'c',
             long,
             value_name = "FILE",
-            help = "Use a prebuilt {hash},{name} dictionary instead of hashing names"
+            help = "Use this {hash},{name} dictionary, renaming falls back to the one beside the binary"
         )]
         dictionary: Option<String>,
-        #[arg(short, long, help = "Print every original name alongside its hash")]
+        #[arg(
+            short,
+            long,
+            help = "Print every name alongside its hash, or every rename as it happens"
+        )]
         print: bool,
         #[arg(
             short,
             long,
-            value_name = "LEVEL",
-            num_args = 0..=1,
-            default_missing_value = "10",
-            help = "Rename matching hashed files in the working directory, walking LEVEL deep (default 10)"
+            help = "Rename the targeted hashed files from the dictionary, the working directory when none are given"
         )]
-        rename: Option<usize>,
+        rename: bool,
     },
     #[command(about = "Write a {hash},{name} dictionary for every file in a directory")]
     Dictionary {
@@ -159,6 +175,13 @@ fn main() {
     }
 
     match cli.command {
+        Some(Commands::Dump { target, keys, output }) => {
+            if target.is_empty() {
+                print_command_help("dump");
+            }
+            let targets = resolve_paths(&target, Some("nsp"), show_ui);
+            dump::execute(&targets, keys.as_deref(), output.as_deref(), show_ui);
+        }
         Some(Commands::Decrypt { target, output }) => {
             if target.is_empty() {
                 print_command_help("decrypt");
@@ -172,7 +195,7 @@ fn main() {
             print,
             rename,
         }) => {
-            if target.is_empty() && dictionary.is_none() && !print && rename.is_none() {
+            if target.is_empty() && dictionary.is_none() && !print && !rename {
                 print_command_help("decode");
             }
             handle_decode_command(&target, dictionary.as_deref(), print, rename, show_ui);
@@ -226,17 +249,41 @@ fn print_command_help(name: &str) -> ! {
     std::process::exit(0);
 }
 
-fn handle_decode_command(
-    target: &TargetArgs,
-    dictionary: Option<&str>,
-    print: bool,
-    rename: Option<usize>,
-    show_ui: bool,
-) {
-    let directory = target.directory(show_ui);
-    let names: Vec<&str> = target.file.iter().chain(&target.input).map(String::as_str).collect();
+fn handle_decode_command(target: &TargetArgs, dictionary: Option<&str>, print: bool, rename: bool, show_ui: bool) {
+    let dictionary = dictionary.map(PathBuf::from);
 
-    if names.is_empty() && directory.is_none() && dictionary.is_none() {
+    if rename {
+        let Some(dictionary) =
+            dictionary.or_else(|| beside_binary(dictionary::DEFAULT_FILE_NAME).filter(|path| path.is_file()))
+        else {
+            abort(
+                "Renaming needs a dictionary, pass --dictionary or keep dictionary.csv beside the binary",
+                show_ui,
+            );
+        };
+
+        let targets = if target.is_empty() {
+            walk_files(&get_local_dir(), DEFAULT_LEVEL)
+        } else {
+            resolve_paths(target, None, show_ui)
+        };
+
+        decode::rename(&targets, &dictionary, print, show_ui);
+        return;
+    }
+
+    let mut directories: Vec<(PathBuf, usize)> = target.directory(show_ui).into_iter().collect();
+    let mut names: Vec<String> = target.file.iter().map(|file| asset_name(file)).collect();
+
+    for input in &target.input {
+        if Path::new(input).is_dir() {
+            directories.push((PathBuf::from(input), DEFAULT_LEVEL));
+        } else {
+            names.push(asset_name(input));
+        }
+    }
+
+    if names.is_empty() && directories.is_empty() && dictionary.is_none() {
         abort(
             "No target given, expected a name, --file, --dir, or --dictionary",
             show_ui,
@@ -245,13 +292,21 @@ fn handle_decode_command(
 
     let request = DecodeRequest {
         names: &names,
-        directory,
-        dictionary,
-        print: print || rename.is_none(),
-        rename,
+        directories: &directories,
+        dictionary: dictionary.as_deref(),
     };
 
     decode::execute(&request, show_ui);
+}
+
+fn asset_name(input: &str) -> String {
+    let path = Path::new(input);
+
+    if path.is_file() {
+        return file_name_of(path).unwrap_or(input).to_string();
+    }
+
+    input.to_string()
 }
 
 fn resolve_paths(target: &TargetArgs, walked: Option<&str>, show_ui: bool) -> Vec<PathBuf> {

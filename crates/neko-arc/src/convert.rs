@@ -14,7 +14,7 @@ use crate::fix::unpremultiply_pixels;
 use crate::io::has_extension;
 
 const TAB_SUFFIX: &str = ".tsv";
-const TAB_SEPARATOR: &str = "\t";
+pub(crate) const TAB_SEPARATOR: &str = "\t";
 const COMMA_SEPARATOR: &str = ",";
 
 pub fn execute(targets: &[PathBuf], output_dir: Option<&str>, show_ui: bool) {
@@ -194,12 +194,7 @@ fn emit_table(bytes: &[u8], stem: &str, destination: &Path, normalize: bool) -> 
     let mut lines = csb::parse(bytes)?;
 
     let (file_name, separator) = if Path::new(stem).extension().is_some() {
-        let separator = if strip_suffix_ignore_case(stem, TAB_SUFFIX).is_some() {
-            TAB_SEPARATOR
-        } else {
-            COMMA_SEPARATOR
-        };
-        (stem.to_string(), separator)
+        (stem.to_string(), name_separator(stem))
     } else {
         let (separator, extension) = infer_table_format(&lines);
         (format!("{stem}{extension}"), separator)
@@ -231,6 +226,14 @@ fn emit_table(bytes: &[u8], stem: &str, destination: &Path, normalize: bool) -> 
     fs::write(destination.join(file_name), csb::render(&lines, separator)).map_err(|err| err.to_string())?;
 
     Ok(flattened)
+}
+
+pub(crate) fn name_separator(name: &str) -> &'static str {
+    if strip_suffix_ignore_case(name, TAB_SUFFIX).is_some() {
+        TAB_SEPARATOR
+    } else {
+        COMMA_SEPARATOR
+    }
 }
 
 fn infer_table_format(lines: &[Vec<String>]) -> (&'static str, &'static str) {

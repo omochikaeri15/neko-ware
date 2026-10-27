@@ -1,6 +1,19 @@
 # Neko-Arc
 Switch assets are stored under a 64-bit hash of their full asset path (`Data/Image/{name}.png.bntx` for art, `Data/CsvFiles/{name}.csb` for `.csv` and `.tsv` tables), so an unpacked archive is a folder of hex names until it gets a name source to match against.
 
+### DUMP
+`neko-arc dump <FILE | DIR>...`
+
+Pulls every `.arc` straight out of an `.nsp`. They land in a folder named after the NSP in the working directory, under the same `Archive/` path the game reads them from, ready to hand to `decrypt`.
+
+Everything inside an NSP is encrypted against the console, so it needs a `prod.keys` dumped from your own Switch. One sitting beside the `neko-arc` binary is picked up on its own, following a symlink back to wherever the real binary lives; `--keys` (`-k`) `<FILE>` points at one anywhere else instead. Either way, the same keys cover every NSP in the run.
+
+An update is a patch that only makes sense laid over its base game, so whenever one is found it is applied, and what comes out is the set of archives the game actually loads once it is installed. Without an update, the base archives are dumped as they shipped.
+
+The update does not have to live in the same NSP as its base. Every NSP named in a run is read first and each update is paired with its base game by title ID, the way an emulator keeps the two installed side by side, so `neko-arc dump "Game [v0].nsp" "Game [Update].nsp"` yields one folder, named after the base NSP, with the update already applied. An update named without its base is reported and skipped, and a second base or update for a game already found is ignored with a warning, so name only the update you want.
+
+Accepts `--file` (`-f`), repeatable, and `--dir` (`-d`) `<DIR> <LEVEL>` the same way `decrypt` does: walking a directory picks up `.nsp` files only, and one bad NSP is reported and skipped rather than ending the run. `--output` (`-o`) behaves as it does for `decrypt`, too.
+
 ### DECRYPT
 `neko-arc decrypt <FILE | DIR>...`
 
@@ -13,13 +26,17 @@ Takes as many archives as you care to name, and accepts `--file` (`-f`), repeata
 ### DECODE
 `neko-arc decode <FILE | DIR>`
 
-Turns original names into hashes and, optionally, renames the unpacked files to match. A bare input with no other flags behaves as `--file` plus `--print`.
+Turns original names into hashes and, optionally, renames the unpacked files to match. Both modes work on the same targets, and a bare input is read for what it is: a directory behaves as `--dir`, anything else as `--file`.
 
-- `--file` (`-f`) `<FILE>` works with one name.
+By default every target is hashed and printed. A name does not have to exist on disk, so `neko-arc decode unit001.png` just works; a file that does exist is hashed by its file name alone, whatever folder it sits in.
+
+- `--file` (`-f`) `<FILE>` works with one name, repeatable.
 - `--dir` (`-d`) `<DIR> <LEVEL>` hashes every file name inside a directory, walking `LEVEL` deep (default `10`).
-- `--dictionary <FILE>` reads a prebuilt `{hash},{name}` list and skips hashing entirely, only touching files whose name is one of those hashes.
-- `--print` (`-p`) prints every name next to its hash.
-- `--rename` (`-r`) `<LEVEL>` walks the working directory `LEVEL` deep (default `10`) and renames matching hashed files, keeping the container extension (`{hash}.bntx` becomes `{name}.png.bntx`).
+- `--dictionary` (`-c`) `<FILE>` reads a prebuilt `{hash},{name}` list. Printing lists every entry it holds alongside the targets.
+
+`--rename` (`-r`) turns the targets around: they become the hashed files to rename, and the names come from the dictionary instead. `--file` renames that one file, `--dir` renames everything it walks into, and with no target at all the working directory is walked `10` deep. Without `--dictionary`, a `dictionary.csv` sitting beside the `neko-arc` binary is picked up on its own, so a dictionary kept there renames any tree you aim it at; with neither, there is nothing to rename from and the run stops. Add `--print` (`-p`) to list every rename as it happens.
+
+Renaming keeps the container extension (`{hash}.bntx` becomes `{name}.png.bntx`). It runs just as well after `convert`: the extension `convert` guessed for a hashed table gives way to the real one, so `{hash}.csv` becomes `uni.imgcut` rather than `uni.imgcut.csv`, and a table whose guessed separator differs from the one its name calls for has its separators swapped on the way. Either order leaves you with the same files.
 
 ### DICTIONARY
 `neko-arc dictionary <DIR> <LEVEL>`
@@ -31,9 +48,9 @@ Writes a `{hash},{name}` pair per line for every file found under `DIR`, walking
 
 Converts `BNTX` to `PNG` and `CSB` to `CSV` / `TSV`, replacing the originals in place. Accepts `--file` (`-f`) and `--dir` (`-d`) `<DIR> <LEVEL>` the same way `decode` does. Pass `--output` (`-o`) to dump the results into a directory instead and leave the originals alone.
 
-Reads block-linear and linear Tegra tiling, every `BCn` and `ASTC` block format, and the packed colour formats, then applies the texture's own channel selectors.
+Reads block-linear and linear Tegra tiling, every `BCn` and `ASTC` block format, and the packed color formats, then applies the texture's own channel selectors.
 
-Tables keep whatever name `decode` resolved for them, so `uni.imgcut.csb` becomes `uni.imgcut` and `stage.tsv.csb` becomes a tab-separated `stage.tsv`. Only `.tsv` uses tabs; every other table is comma-separated, which covers `.csv` alongside the `.imgcut`, `.mamodel`, and `.maanim` rigging formats. A file still under its hash has no name to go by, so the delimiter is picked from its contents and the matching extension is appended.
+Tables keep whatever name `decode` resolved for them, so `uni.imgcut.csb` becomes `uni.imgcut` and `stage.tsv.csb` becomes a tab-separated `stage.tsv`. Only `.tsv` uses tabs; every other table is comma-separated, which covers `.csv` alongside the `.imgcut`, `.mamodel`, and `.maanim` rigging formats. A file still under its hash has no name to go by, so the delimiter is picked from its contents and the matching extension is appended, which `decode --rename` corrects later once the name is known.
 
 ### FIX
 `neko-arc fix <FILE | DIR>`

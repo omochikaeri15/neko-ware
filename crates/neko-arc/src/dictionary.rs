@@ -8,7 +8,7 @@ use tracing::{debug, error, info, trace};
 use crate::hash::hash_hex;
 use crate::io::{file_name_of, get_local_dir, walk_files};
 
-const DEFAULT_FILE_NAME: &str = "dictionary.csv";
+pub(crate) const DEFAULT_FILE_NAME: &str = "dictionary.csv";
 
 pub fn execute(input_target: &str, level: usize, output_target: Option<&str>, show_ui: bool) {
     let source_dir = Path::new(input_target);
