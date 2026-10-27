@@ -14,9 +14,6 @@ repository = "https://github.com/omochikaeri15/neko-ware"
 [workspace.dependencies]
 nyanko = { git = "https://github.com/omochikaeri15/nyanko" }
 
-#[patch."https://github.com/omochikaeri15/nyanko"]
-#nyanko = { path = "../nyanko" }
-
 [profile.release]
 strip = true
 opt-level = 3
