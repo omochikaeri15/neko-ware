@@ -4,8 +4,10 @@ mod nsp;
 mod patch;
 mod romfs;
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use colored::Colorize;
 use rayon::prelude::*;
@@ -48,6 +50,8 @@ struct Output {
     offset: u64,
     size: u64,
     path: PathBuf,
+    handle: Mutex<Option<Arc<File>>>,
+    pending: AtomicUsize,
 }
 
 pub(crate) struct Rom<'a> {
@@ -410,6 +414,8 @@ fn copy_files(rom: &Rom, entries: &[&RomFile]) -> Result<Copied, String> {
             offset: entry.offset,
             size: entry.size,
             path: rom.output_base.join(&entry.path),
+            handle: Mutex::new(None),
+            pending: AtomicUsize::new(entry.size.div_ceil(CHUNK_SIZE) as usize),
         })
         .collect();
 
@@ -421,11 +427,14 @@ fn copy_files(rom: &Rom, entries: &[&RomFile]) -> Result<Copied, String> {
         fs::create_dir_all(directory).map_err(|err| format!("Could not create {}: {err}", directory.display()))?;
     }
 
-    outputs.par_iter().try_for_each(|output| {
-        File::create(&output.path)
-            .map(drop)
-            .map_err(|err| format!("Could not create {}: {err}", output.path.display()))
-    })?;
+    outputs
+        .par_iter()
+        .filter(|output| output.size == 0)
+        .try_for_each(|output| {
+            File::create(&output.path)
+                .map(drop)
+                .map_err(|err| format!("Could not create {}: {err}", output.path.display()))
+        })?;
 
     let chunks: Vec<(usize, u64)> = outputs
         .iter()
@@ -445,12 +454,10 @@ fn copy_files(rom: &Rom, entries: &[&RomFile]) -> Result<Copied, String> {
             buffer.resize(length, 0);
 
             let outcome = rom.read_at(output.offset + start, buffer).and_then(|()| {
-                OpenOptions::new()
-                    .write(true)
-                    .open(&output.path)
-                    .and_then(|file| write_all_at(&file, buffer, start))
-                    .map_err(|err| err.to_string())
+                let file = output.open()?;
+                write_all_at(&file, buffer, start).map_err(|err| err.to_string())
             });
+            output.release();
 
             outcome.err().map(|err| {
                 warn!(file = %output.path.display(), offset = start, error = %err, "Failed to dump file chunk");
@@ -475,6 +482,32 @@ fn copy_files(rom: &Rom, entries: &[&RomFile]) -> Result<Copied, String> {
         failed: failed.len(),
         error: failures.into_iter().next().map(|(_, err)| err),
     })
+}
+
+impl Output {
+    fn open(&self) -> Result<Arc<File>, String> {
+        let mut slot = self
+            .handle
+            .lock()
+            .map_err(|_| String::from("Output handle lock was poisoned"))?;
+
+        if let Some(file) = slot.as_ref() {
+            return Ok(Arc::clone(file));
+        }
+
+        let file = File::create(&self.path).map_err(|err| format!("Could not create {}: {err}", self.path.display()))?;
+        let file = Arc::new(file);
+        *slot = Some(Arc::clone(&file));
+        Ok(file)
+    }
+
+    fn release(&self) {
+        if self.pending.fetch_sub(1, Ordering::AcqRel) == 1
+            && let Ok(mut slot) = self.handle.lock()
+        {
+            slot.take();
+        }
+    }
 }
 
 impl Storage for Source<'_> {
