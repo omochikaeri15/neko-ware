@@ -7,8 +7,6 @@ apk/
 app/
 
 # Quality of Life
-.cargo/*
-!.cargo/config.toml
 .cl*/
 .st*/
 .re*/
