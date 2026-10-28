@@ -17,6 +17,7 @@ RE*.ms
 
 # Other
 /target/
+.cargo/
 **/*.rs.bk
 rustfmt.toml
 .vscode/
