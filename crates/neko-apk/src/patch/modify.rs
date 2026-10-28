@@ -311,11 +311,11 @@ impl ApkEditor {
             strip_activity_labels(application_element, &mut self.manifest.string_pool);
         }
 
-        if let Some(ref mut mutable_table) = self.res_table {
-            if let Some(first_package) = mutable_table.packages.first_mut() {
-                debug!("Updating resources.arsc package name to {}", final_constructed_package_name);
-                first_package.name.clone_from(&final_constructed_package_name);
-            }
+        if let Some(ref mut mutable_table) = self.res_table
+            && let Some(first_package) = mutable_table.packages.first_mut()
+        {
+            debug!("Updating resources.arsc package name to {}", final_constructed_package_name);
+            first_package.name.clone_from(&final_constructed_package_name);
         }
 
         info!("Patching complete. New identity: {}", final_constructed_package_name);
@@ -419,20 +419,34 @@ fn replace_package_references(
     }
 }
 
+pub struct InjectionSources<'a> {
+    pub assets_directory: &'a Path,
+    pub icons_directory: &'a Path,
+    pub loose_directory: &'a Path,
+    pub code_directory: &'a Path,
+    pub patched_manifest_path: Option<&'a Path>,
+    pub patched_arsc_path: Option<&'a Path>,
+    pub force_inject_path: Option<&'a Path>,
+}
+
 #[instrument(skip_all)]
 pub fn inject_and_build_apk(
     source_apk_path: &Path,
     output_apk_path: &Path,
-    assets_directory: &Path,
-    icons_directory: &Path,
-    loose_directory: &Path,
-    code_directory: &Path,
-    patched_manifest_path: Option<&Path>,
-    patched_arsc_path: Option<&Path>,
+    sources: InjectionSources,
     target_architecture: Option<&str>,
-    force_inject_path: Option<&Path>,
     show_ui: bool,
 ) -> Result<usize> {
+    let InjectionSources {
+        assets_directory,
+        icons_directory,
+        loose_directory,
+        code_directory,
+        patched_manifest_path,
+        patched_arsc_path,
+        force_inject_path,
+    } = sources;
+
     info!("Starting APK build & injection from {:?} to {:?}", source_apk_path, output_apk_path);
     let source_file = fs::File::open(source_apk_path).map_err(|error| {
         error!("Failed to open source APK: {}", error);
@@ -492,15 +506,15 @@ pub fn inject_and_build_apk(
             if let Some(name) = force_path.file_name() {
                 force_inject_map.insert(name.to_string_lossy().into_owned(), force_path.to_path_buf());
             }
-        } else if force_path.is_dir() {
-            if let Ok(entries) = fs::read_dir(force_path) {
-                for entry_result in entries.flatten() {
-                    if !entry_result.path().is_file() {
-                        continue;
-                    }
-                    let name = entry_result.file_name().to_string_lossy().into_owned();
-                    force_inject_map.insert(name, entry_result.path());
+        } else if force_path.is_dir()
+            && let Ok(entries) = fs::read_dir(force_path)
+        {
+            for entry_result in entries.flatten() {
+                if !entry_result.path().is_file() {
+                    continue;
                 }
+                let name = entry_result.file_name().to_string_lossy().into_owned();
+                force_inject_map.insert(name, entry_result.path());
             }
         }
     }
@@ -544,23 +558,22 @@ pub fn inject_and_build_apk(
         let internal_file_name = archive_file.name().to_string();
 
         let uppercase_file_name = internal_file_name.to_ascii_uppercase();
-        if uppercase_file_name.starts_with("META-INF/") || uppercase_file_name.starts_with("META-INF\\") {
-            if uppercase_file_name.ends_with(".SF")
+        if (uppercase_file_name.starts_with("META-INF/") || uppercase_file_name.starts_with("META-INF\\"))
+            && (uppercase_file_name.ends_with(".SF")
                 || uppercase_file_name.ends_with(".RSA")
                 || uppercase_file_name.ends_with(".DSA")
                 || uppercase_file_name.ends_with(".EC")
                 || uppercase_file_name.ends_with("MANIFEST.MF")
-                || uppercase_file_name.contains("STAMP-CERT")
-            {
-                trace!("Skipping original signature file: {}", internal_file_name);
-                continue;
-            }
+                || uppercase_file_name.contains("STAMP-CERT"))
+        {
+            trace!("Skipping original signature file: {}", internal_file_name);
+            continue;
         }
 
-        if internal_file_name.starts_with("res/") {
-            if let Some(parent_path) = Path::new(&internal_file_name).parent() {
-                pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
-            }
+        if internal_file_name.starts_with("res/")
+            && let Some(parent_path) = Path::new(&internal_file_name).parent()
+        {
+            pre_existing_resource_folders.insert(parent_path.to_string_lossy().replace("\\", "/"));
         }
 
         let short_file_name = Path::new(&internal_file_name)
@@ -576,16 +589,15 @@ pub fn inject_and_build_apk(
             continue;
         }
 
-        if internal_file_name.starts_with("lib/") {
-            if let Some(target_arch) = target_architecture {
-                if internal_file_name.starts_with(&format!("lib/{target_arch}/")) {
-                    has_target_architecture_folder = true;
-                    if custom_code_files.contains_key(&short_file_name) {
-                        trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
-                        discovered_code_zip_paths.push((internal_file_name.clone(), short_file_name));
-                        continue;
-                    }
-                }
+        if internal_file_name.starts_with("lib/")
+            && let Some(target_arch) = target_architecture
+            && internal_file_name.starts_with(&format!("lib/{target_arch}/"))
+        {
+            has_target_architecture_folder = true;
+            if custom_code_files.contains_key(&short_file_name) {
+                trace!(file = %internal_file_name, "Intercepted vanilla native library in archive; queuing for replacement");
+                discovered_code_zip_paths.push((internal_file_name.clone(), short_file_name));
+                continue;
             }
         }
 

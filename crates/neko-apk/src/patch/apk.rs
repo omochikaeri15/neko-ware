@@ -227,14 +227,20 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     let injected_file_count = modify::inject_and_build_apk(
         &config.input_apk_path,
         &unsigned_apk_path,
-        &temporary_assets_directory,
-        &config.icons_directory,
-        &config.loose_directory,
-        &config.code_directory,
-        if is_update_patch { None } else { Some(manifest_extraction_path.as_path()) },
-        if is_update_patch || !extracted_resource_table { None } else { Some(resource_extraction_path.as_path()) },
+        modify::InjectionSources {
+            assets_directory: &temporary_assets_directory,
+            icons_directory: &config.icons_directory,
+            loose_directory: &config.loose_directory,
+            code_directory: &config.code_directory,
+            patched_manifest_path: if is_update_patch { None } else { Some(manifest_extraction_path.as_path()) },
+            patched_arsc_path: if is_update_patch || !extracted_resource_table {
+                None
+            } else {
+                Some(resource_extraction_path.as_path())
+            },
+            force_inject_path: config.force_inject.as_deref(),
+        },
         config.target_architecture.as_deref(),
-        config.force_inject.as_deref(),
         config.show_ui,
     )
         .map_err(|error| {
@@ -342,15 +348,14 @@ pub fn execute_patch(config: &PatchConfig) -> Result<(String, String), String> {
     trace!("Cleaning up temporary application directory...");
     let _cleanup_result = fs::remove_dir_all(&application_directory);
 
-    if config.show_ui {
-        if let Some((version_code, version_name)) = apk_version_info {
-            if version_code <= 1401010 {
-                println!();
-                println!("  {} Legacy game version {version_name} detected", "!".truecolor(255, 165, 0));
-                println!("  {} Legacy versions are known to crash on load", "!".truecolor(255, 165, 0));
-                println!("  {} Please update to a more stable app version", "!".truecolor(255, 165, 0));
-            }
-        }
+    if config.show_ui
+        && let Some((version_code, version_name)) = apk_version_info
+        && version_code <= 1401010
+    {
+        println!();
+        println!("  {} Legacy game version {version_name} detected", "!".truecolor(255, 165, 0));
+        println!("  {} Legacy versions are known to crash on load", "!".truecolor(255, 165, 0));
+        println!("  {} Please update to a more stable app version", "!".truecolor(255, 165, 0));
     }
 
     let output_display_name = destination_file_path

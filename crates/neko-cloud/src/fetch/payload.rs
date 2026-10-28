@@ -55,7 +55,7 @@ pub fn extract_payload_from_binary(
         return Err(format!("ERROR: File not found at '{}'", path_str).into());
     }
 
-    if path.extension().map_or(false, |ext| ext == "apk") {
+    if path.extension().is_some_and(|ext| ext == "apk") {
         let file = File::open(path)?;
         let mut archive = zip::ZipArchive::new(file)?;
         let mut internal_so = archive.by_name("lib/x86_64/libnative-lib.so")?;

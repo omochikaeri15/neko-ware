@@ -4,18 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::io::{Write, stdin, stdout};
 use tracing::{error, info, debug};
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputBehavior {
     Automatic,
     Replace,
+    #[default]
     Create,
-}
-
-impl Default for OutputBehavior {
-    fn default() -> Self {
-        Self::Create
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

@@ -1,0 +1,2 @@
+[alias]
+ship = "run -p xtask --release"

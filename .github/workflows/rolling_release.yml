@@ -7,6 +7,10 @@ on:
       - 'Cargo.toml'
   workflow_dispatch:
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   prepare:
     name: Get Version

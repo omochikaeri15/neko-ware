@@ -3143,6 +3143,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd223bc94c615fc02bf2f4bbc22a4a9bfe489c2add3ec10b1038df3aca44cac7"
 
 [[package]]
+name = "xtask"
+version = "0.1.0"
+
+[[package]]
 name = "xts-mode"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

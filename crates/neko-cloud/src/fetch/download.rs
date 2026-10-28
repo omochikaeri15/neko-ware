@@ -9,6 +9,7 @@ use reqwest::Client;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
+use std::ops::RangeInclusive;
 use tracing::{debug, info};
 
 async fn scan_for_valid_urls(
@@ -17,13 +18,12 @@ async fn scan_for_valid_urls(
     project_name: &str,
     lang_suffix: &str,
     target_version: i32,
-    start_index: i32,
-    end_index: i32,
+    indices: RangeInclusive<i32>,
     show_ui: bool,
 ) -> Vec<String> {
     let mut valid_urls = Vec::new();
 
-    let mut scanner_stream = stream::iter(start_index..=end_index)
+    let mut scanner_stream = stream::iter(indices)
         .map(|index| {
             let url = format_url(base_url, project_name, lang_suffix, target_version, index);
             async move {
@@ -74,7 +74,7 @@ async fn download_valid_urls(
     }
 
     for url in valid_urls {
-        let file_name = url.split('/').last().unwrap_or("downloaded_file.zip");
+        let file_name = url.split('/').next_back().unwrap_or("downloaded_file.zip");
         let mut file_path = output_dir.clone();
         file_path.push(file_name);
 
@@ -146,13 +146,13 @@ pub async fn execute_download_pipeline(
                 .buffer_unordered(20);
 
             while let Some((index, version, url, result)) = check_stream.next().await {
-                if let Ok(response) = result {
-                    if response.status().is_success() {
-                        if show_ui {
-                            println!("    {} Found explicit target payload {:>8} at Index {:02}", "✓".green(), version, index);
-                        }
-                        discovered_urls.push(url);
+                if let Ok(response) = result
+                    && response.status().is_success()
+                {
+                    if show_ui {
+                        println!("    {} Found explicit target payload {:>8} at Index {:02}", "✓".green(), version, index);
                     }
+                    discovered_urls.push(url);
                 }
             }
             discovered_urls
@@ -169,8 +169,7 @@ pub async fn execute_download_pipeline(
                 project_name,
                 lang_suffix,
                 target_version,
-                start_index,
-                end_index,
+                start_index..=end_index,
                 show_ui,
             )
                 .await
